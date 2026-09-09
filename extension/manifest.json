@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "Threadbox Capture",
+  "version": "0.1.15",
+  "description": "Capture tasks from Slack, Gmail, WhatsApp Web, and any web page.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "threadbox@threadbox.app",
+      "data_collection_permissions": {
+        "required": ["none"]
+      },
+      "strict_min_version": "128.0"
+    }
+  },
+  "permissions": ["activeTab", "contextMenus", "nativeMessaging", "storage"],
+  "host_permissions": [
+    "https://app.slack.com/*",
+    "https://*.slack.com/*",
+    "https://mail.google.com/*",
+    "https://web.whatsapp.com/*"
+  ],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "action": {
+    "default_title": "Add page to Threadbox",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://app.slack.com/*", "https://*.slack.com/*"],
+      "js": ["shared.js", "adapters/slack.js"],
+      "css": ["capture.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://mail.google.com/*"],
+      "js": ["shared.js", "adapters/gmail.js"],
+      "css": ["capture.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://web.whatsapp.com/*"],
+      "js": ["shared.js", "adapters/whatsapp.js"],
+      "css": ["capture.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

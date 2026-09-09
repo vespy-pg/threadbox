@@ -1,0 +1,50 @@
+{
+  "name": "threadbox",
+  "private": true,
+  "version": "0.1.15",
+  "description": "A local-first task inbox for work that arrives through conversations.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vespy-pg/threadbox.git"
+  },
+  "homepage": "https://github.com/vespy-pg/threadbox#readme",
+  "bugs": {
+    "url": "https://github.com/vespy-pg/threadbox/issues"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "extension:build": "node scripts/build-extension.mjs",
+    "extension:lint": "web-ext lint --source-dir dist/extension/firefox",
+    "release:linux": "bash scripts/release-linux.sh",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.8.0",
+    "@tauri-apps/plugin-autostart": "^2.5.1",
+    "@tauri-apps/plugin-clipboard-manager": "^2.3.3",
+    "@tauri-apps/plugin-dialog": "^2.4.0",
+    "@tauri-apps/plugin-global-shortcut": "^2.3.0",
+    "@tauri-apps/plugin-notification": "^2.3.0",
+    "@tauri-apps/plugin-opener": "^2.5.0",
+    "date-fns": "^4.1.0",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.8.4",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "vitest": "^2.1.8",
+    "web-ext": "^8.3.0"
+  }
+}

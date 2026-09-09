@@ -1,0 +1,43 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Threadbox",
+  "version": "0.1.15",
+  "identifier": "com.threadbox.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Threadbox",
+        "width": 1180,
+        "height": 760,
+        "minWidth": 760,
+        "minHeight": 560,
+        "center": true,
+        "visible": false,
+        "decorations": true,
+        "transparent": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost https://huggingface.co",
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$DATA/threadbox/media/**"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["appimage", "deb"],
+    "category": "Productivity",
+    "shortDescription": "A local-first inbox for tasks from every conversation",
+    "longDescription": "Capture tasks from messages, screenshots, voice notes, and your own thoughts. Keep context and return to the original conversation.",
+    "copyright": "Copyright Threadbox contributors",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png"]
+  }
+}

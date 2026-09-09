@@ -1,0 +1,40 @@
+[data-threadbox-capture] {
+  position: absolute !important;
+  z-index: 20 !important;
+  top: 4px !important;
+  right: 4px !important;
+  display: grid !important;
+  place-items: center !important;
+  width: 24px !important;
+  height: 24px !important;
+  padding: 0 !important;
+  border: 1px solid rgba(33, 91, 70, .22) !important;
+  border-radius: 7px !important;
+  opacity: 0 !important;
+  color: #175341 !important;
+  background: #edf7f1 !important;
+  box-shadow: 0 2px 8px rgba(20, 40, 32, .13) !important;
+  font: 700 11px system-ui, sans-serif !important;
+  cursor: pointer !important;
+  transition: none !important;
+  transition: opacity .12s ease, transform .12s ease !important;
+}
+
+[data-qa="message_container"]:hover > [data-threadbox-capture],
+.c-virtual_list__item:hover > [data-threadbox-capture],
+.adn:hover > [data-threadbox-capture],
+[data-message-id]:hover > [data-threadbox-capture],
+[data-id]:hover > [data-threadbox-capture],
+[data-threadbox-capture]:focus,
+[data-threadbox-capture][data-state="sending"],
+[data-threadbox-capture][data-state="saved"],
+[data-threadbox-capture][data-state="error"] { opacity: 1 !important; }
+
+[data-threadbox-capture]:hover { transform: scale(1.08) !important; }
+[data-threadbox-capture][data-state="sending"] { animation: threadbox-pulse 1s infinite !important; }
+[data-threadbox-capture][data-state="saved"] { color: white !important; background: #267657 !important; }
+[data-threadbox-capture][data-state="error"] { opacity: 1 !important; color: white !important; background: #b04e3d !important; }
+
+[data-qa="message_container"], .c-virtual_list__item[data-item-key], .adn, [data-message-id], [data-id] { position: relative !important; }
+
+@keyframes threadbox-pulse { 50% { transform: scale(.86); opacity: .6; } }
