@@ -45,6 +45,7 @@ COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/src-tauri/target \
     rm -rf /app/src-tauri/target/release/bundle \
+    && npm run build \
     && cargo test --manifest-path src-tauri/Cargo.toml \
     && npm run tauri build \
     && mkdir -p /app/release-bundle \
