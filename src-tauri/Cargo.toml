@@ -39,7 +39,7 @@ tauri-plugin-single-instance = "2"
 thiserror = "2"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
-whisper-rs = "0.14"
+whisper-rs = "0.16"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
