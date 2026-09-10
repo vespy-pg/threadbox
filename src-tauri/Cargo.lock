@@ -4903,7 +4903,7 @@ name = "threadbox"
 version = "0.1.16"
 dependencies = [
  "ashpd",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "cpal",
  "directories",
