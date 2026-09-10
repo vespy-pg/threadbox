@@ -40,7 +40,7 @@ thiserror = "2"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
 whisper-rs = "0.14"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "8", default-features = false, features = ["deflate"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 notify-rust = "4"
