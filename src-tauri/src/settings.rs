@@ -8,6 +8,8 @@ use crate::error::{AppError, AppResult};
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
+    #[serde(default)]
+    pub welcome_completed: bool,
     #[serde(default = "default_start_at_login")]
     pub start_at_login: bool,
     pub quick_capture_shortcut: String,
@@ -28,6 +30,7 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
+            welcome_completed: false,
             start_at_login: default_start_at_login(),
             quick_capture_shortcut: "CommandOrControl+Shift+Space".into(),
             overdue_reminders_enabled: true,
@@ -139,6 +142,7 @@ mod tests {
     #[test]
     fn defaults_enable_quarter_hour_overdue_reminders() {
         let settings = AppSettings::default();
+        assert!(!settings.welcome_completed);
         assert!(settings.start_at_login);
         assert!(settings.overdue_reminders_enabled);
         assert_eq!(settings.overdue_interval_minutes, 15);

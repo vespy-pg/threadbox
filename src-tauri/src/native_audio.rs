@@ -118,6 +118,16 @@ impl NativeAudioRecorder {
     }
 }
 
+pub fn warm_up() -> AppResult<()> {
+    let host = preferred_host()?;
+    if let Some(device) = host.default_input_device() {
+        let _ = device.default_input_config();
+    }
+    // Enumerating monitor sources establishes the PulseAudio connection used by either mode.
+    let _ = host.input_devices().map(|devices| devices.count());
+    Ok(())
+}
+
 #[cfg(target_os = "linux")]
 fn preferred_host() -> AppResult<cpal::Host> {
     cpal::host_from_id(cpal::HostId::PulseAudio)

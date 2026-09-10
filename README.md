@@ -9,14 +9,31 @@ Release 1 targets Linux and Firefox. The architecture keeps the desktop core, br
 
 Linux release packages are built on Ubuntu 22.04 to remain compatible with Ubuntu 22.04 and newer distributions.
 
-## Install release 1
+## Install Threadbox on Ubuntu or Debian
 
-Download one of the Linux desktop packages from the GitHub release:
+No developer tools are required.
 
-- Debian or Ubuntu: install `Threadbox_0.1.15_amd64.deb` with the system package manager.
-- Other x86_64 Linux distributions: make `Threadbox_0.1.15_amd64.AppImage` executable and run it.
+1. Open the [latest Threadbox release](https://github.com/vespy-pg/threadbox/releases/latest).
+2. Under **Assets**, download `Threadbox_0.1.16_amd64.deb`.
+3. Open the downloaded file and select **Install** in the system software window.
+4. Open **Threadbox** from the applications menu. It can start automatically after future logins if that option remains enabled in Settings.
 
-Start Threadbox once, then install the signed Firefox extension from the same release. The desktop app automatically registers the native messaging connection used by the extension. Unsigned extension ZIP files are intended only for temporary developer installation through `about:debugging`.
+If double-clicking the package does not open an installer, open a terminal in the Downloads folder and run:
+
+```bash
+sudo apt install ./Threadbox_0.1.16_amd64.deb
+```
+
+The Firefox extension is optional. The desktop app works on its own. To capture Slack, Gmail and WhatsApp messages from Firefox, download the signed `.xpi` file from the same release and open it with Firefox after Threadbox has been started once.
+
+### Other Linux distributions
+
+Download `Threadbox_0.1.16_amd64.AppImage`, make it executable in the file Properties window, then open it. From a terminal, the equivalent commands are:
+
+```bash
+chmod +x Threadbox_0.1.16_amd64.AppImage
+./Threadbox_0.1.16_amd64.AppImage
+```
 
 ## Features
 

@@ -134,7 +134,7 @@ export const api = {
         return settings;
       }
     }
-    return { startAtLogin: true, quickCaptureShortcut: "CommandOrControl+Shift+Space", overdueRemindersEnabled: true, overdueIntervalMinutes: 15, stickyRemindersEnabled: true, tomorrowReminderTime: "08:30", clockFormat: "24h", audioInputMode: "microphone", taskRetentionDays: 7 };
+    return { welcomeCompleted: false, startAtLogin: true, quickCaptureShortcut: "CommandOrControl+Shift+Space", overdueRemindersEnabled: true, overdueIntervalMinutes: 15, stickyRemindersEnabled: true, tomorrowReminderTime: "08:30", clockFormat: "24h", audioInputMode: "microphone", taskRetentionDays: 7 };
   },
 
   async updateSettings(settings: AppSettings): Promise<AppSettings> {
@@ -150,6 +150,10 @@ export const api = {
 
   async testReminderSound(): Promise<void> {
     if (inTauri()) await invoke<void>("test_reminder_sound");
+  },
+
+  async warmUpAudio(): Promise<void> {
+    if (inTauri()) await invoke<void>("warm_up_audio");
   },
 
   async playRecording(dataUrl: string): Promise<void> {

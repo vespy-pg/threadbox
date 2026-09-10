@@ -1,7 +1,7 @@
 {
   "name": "threadbox",
   "private": true,
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "A local-first task inbox for work that arrives through conversations.",
   "license": "MIT",
   "repository": {

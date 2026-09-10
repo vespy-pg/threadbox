@@ -124,11 +124,21 @@ async fn capture_screenshot() -> AppResult<String> {
 }
 
 #[tauri::command]
-fn start_native_recording(
+async fn start_native_recording(
     recorder: tauri::State<'_, NativeAudioRecorder>,
     input_mode: String,
 ) -> AppResult<()> {
-    recorder.start(&input_mode)
+    let recorder = recorder.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || recorder.start(&input_mode))
+        .await
+        .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
+}
+
+#[tauri::command]
+async fn warm_up_audio() -> AppResult<()> {
+    tauri::async_runtime::spawn_blocking(native_audio::warm_up)
+        .await
+        .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
 }
 
 #[tauri::command]
@@ -238,6 +248,7 @@ pub fn run() {
             update_settings,
             capture_screenshot,
             start_native_recording,
+            warm_up_audio,
             stop_native_recording,
             test_reminder_sound,
             play_recording,

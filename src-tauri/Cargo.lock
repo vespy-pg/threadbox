@@ -4900,7 +4900,7 @@ dependencies = [
 
 [[package]]
 name = "threadbox"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "ashpd",
  "base64 0.22.1",

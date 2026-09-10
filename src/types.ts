@@ -75,6 +75,7 @@ export interface ModelStatus {
 }
 
 export interface AppSettings {
+  welcomeCompleted: boolean;
   startAtLogin: boolean;
   quickCaptureShortcut: string;
   overdueRemindersEnabled: boolean;

@@ -1,6 +1,6 @@
 [package]
 name = "threadbox"
-version = "0.1.15"
+version = "0.1.16"
 description = "A local-first task inbox for messages, screenshots, and voice notes"
 authors = ["Threadbox contributors"]
 edition = "2021"

@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowDown,
   Bell,
+  BellRing,
   Camera,
   Check,
   CheckCircle2,
@@ -22,10 +23,12 @@ import {
   Plus,
   Search,
   Settings,
+  SlidersHorizontal,
   Square,
   Trash2,
   RotateCcw,
   X,
+  Zap,
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -62,7 +65,7 @@ const viewTitles: Record<TaskView, string> = {
 
 const inTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 const mediaSource = (value: string): string => value.startsWith("data:") || !inTauri() ? value : convertFileSrc(value);
-const defaultSettings: AppSettings = { startAtLogin: true, quickCaptureShortcut: "CommandOrControl+Shift+Space", overdueRemindersEnabled: true, overdueIntervalMinutes: 15, stickyRemindersEnabled: true, tomorrowReminderTime: "08:30", clockFormat: "24h", audioInputMode: "microphone", taskRetentionDays: 7 };
+const defaultSettings: AppSettings = { welcomeCompleted: false, startAtLogin: true, quickCaptureShortcut: "CommandOrControl+Shift+Space", overdueRemindersEnabled: true, overdueIntervalMinutes: 15, stickyRemindersEnabled: true, tomorrowReminderTime: "08:30", clockFormat: "24h", audioInputMode: "microphone", taskRetentionDays: 7 };
 const pageSize = 20;
 export type ReminderPreset = "15m" | "1h" | "3h" | "6h" | "24h" | "tomorrow";
 const reminderPresets: Array<{ value: ReminderPreset; label: string }> = [
@@ -90,6 +93,7 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [composerOpen, setComposerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [remindersOpen, setRemindersOpen] = useState(false);
   const [stickyReminderOpen, setStickyReminderOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -104,6 +108,7 @@ export default function App() {
   const [undoCompletion, setUndoCompletion] = useState<{ id: string; previousStatus: Task["status"] } | null>(null);
   const [undoDeletion, setUndoDeletion] = useState<{ id: string; title: string } | null>(null);
   const checkedInitialReminders = useRef(false);
+  const checkedInitialWelcome = useRef(false);
   const listMenuRef = useRef<HTMLDivElement>(null);
   const undoTimerRef = useRef<number | null>(null);
   const undoDeletionTimerRef = useRef<number | null>(null);
@@ -146,6 +151,17 @@ export default function App() {
 
   useEffect(() => {
     void api.getSettings().then(setSettings).catch((reason) => setError(String(reason))).finally(() => setSettingsLoaded(true));
+  }, []);
+
+  useEffect(() => {
+    if (!settingsLoaded || checkedInitialWelcome.current) return;
+    checkedInitialWelcome.current = true;
+    setWelcomeOpen(!settings.welcomeCompleted);
+  }, [settings.welcomeCompleted, settingsLoaded]);
+
+  useEffect(() => {
+    const warmup = window.setTimeout(() => void api.warmUpAudio().catch(() => undefined), 350);
+    return () => window.clearTimeout(warmup);
   }, []);
 
   useEffect(() => {
@@ -372,7 +388,8 @@ export default function App() {
       </section>
 
       {composerOpen && <Composer clockFormat={settings.clockFormat} audioInputMode={settings.audioInputMode} tomorrowReminderTime={settings.tomorrowReminderTime} transcribingAudioIds={transcribingAudioIds} onAudioTranscribing={setAudioTranscribing} onTaskProcessing={setTaskProcessing} onClose={() => setComposerOpen(false)} onSubmit={createTask} onTaskUpdate={updateTask} onError={setError} />}
-      {settingsOpen && <SettingsDialog settings={settings} onSettings={setSettings} onClose={() => setSettingsOpen(false)} onError={setError} />}
+      {settingsOpen && <SettingsDialog settings={settings} onSettings={setSettings} onClose={() => { setSettingsOpen(false); if (!settings.welcomeCompleted) setWelcomeOpen(true); }} onError={setError} />}
+      {welcomeOpen && <WelcomeDialog shortcut={settings.quickCaptureShortcut} onComplete={() => { void api.updateSettings({ ...settings, welcomeCompleted: true }).then((updated) => { setSettings(updated); setWelcomeOpen(false); }).catch((reason) => setError(String(reason))); }} />}
       {remindersOpen && <ReminderCenter tasks={reminderTasks(tasks)} tomorrowReminderTime={settings.tomorrowReminderTime} onClose={() => setRemindersOpen(false)} onOpen={(task) => { setSelectedId(task.id); setRemindersOpen(false); }} onDone={(task) => updateTask(task.id, { status: "done" })} onSnooze={(task, preset) => updateTask(task.id, { remindAt: reminderDate(preset, settings.tomorrowReminderTime).toISOString() })} onSnoozeAll={(items, preset) => Promise.all(items.map((task) => updateTask(task.id, { remindAt: reminderDate(preset, settings.tomorrowReminderTime).toISOString() }))).then(() => undefined)} />}
       {stickyReminderOpen && dueReminders.length > 0 && <StickyReminder tasks={dueReminders} tomorrowReminderTime={settings.tomorrowReminderTime} onOpen={(task) => { setSelectedId(task.id); void releaseStickyReminder(); }} onDone={(task) => updateTask(task.id, { status: "done" })} onSnooze={(task, preset) => updateTask(task.id, { remindAt: reminderDate(preset, settings.tomorrowReminderTime).toISOString() })} onSnoozeAll={(items, preset) => Promise.all(items.map((task) => updateTask(task.id, { remindAt: reminderDate(preset, settings.tomorrowReminderTime).toISOString() }))).then(() => undefined)} />}
       {error && <div className="toast error-toast"><span>{error}</span><button onClick={() => setError(null)}><X size={16} /></button></div>}
@@ -383,9 +400,10 @@ export default function App() {
 }
 
 function TaskRow({ task, selected, processing, onSelect, onToggle, onRestore }: { task: Task; selected: boolean; processing: boolean; onSelect: () => void; onToggle: () => void; onRestore: () => void }) {
-  return <article className={`task-row ${selected ? "selected" : ""} ${processing ? "processing" : ""}`} onClick={onSelect}>
+  const preview = task.notes.replace(/\s+/g, " ").trim();
+  return <article className={`task-row priority-${task.priority} ${selected ? "selected" : ""} ${processing ? "processing" : ""}`} onClick={onSelect}>
     {task.deletedAt ? <button className="restore-task-button" title="Restore task" aria-label="Restore task" onClick={(event) => { event.stopPropagation(); onRestore(); }}><RotateCcw size={15} /></button> : <input className="task-checkbox" type="checkbox" checked={task.status === "done"} aria-label={task.status === "done" ? "Reopen task" : "Complete task"} onClick={(event) => event.stopPropagation()} onChange={onToggle} />}
-    <div className="task-row-body"><h3>{task.title}</h3><div className="task-meta"><span className={`priority-badge ${task.priority}`}>{task.priority}</span>{task.sourceType !== "manual" && <span className={`source-badge ${task.sourceType}`}>{task.sourceType}</span>}<span className={task.dueAt && new Date(task.dueAt) < new Date() ? "overdue" : ""}>{task.deletedAt ? `Deleted ${formatDueDate(task.deletedAt)}` : formatDueDate(task.dueAt)}</span></div></div>
+    <div className="task-row-body"><h3>{task.title}</h3>{preview && <p className="task-preview">{preview}</p>}<div className="task-meta"><span className={`priority-badge ${task.priority}`}>{task.priority}</span>{task.sourceType !== "manual" && <span className={`source-badge ${task.sourceType}`}>{task.sourceType}</span>}<span className={task.dueAt && new Date(task.dueAt) < new Date() ? "overdue" : ""}>{task.deletedAt ? `Deleted ${formatDueDate(task.deletedAt)}` : formatDueDate(task.dueAt)}</span></div></div>
     <div className="task-row-media">{processing && <span className="task-processing" title="Background processing"><LoaderCircle size={15} /></span>}{(task.screenshots.length > 0 || task.audioAttachments.length > 0 || task.fileAttachments.length > 0) && <Paperclip size={15} className="muted-icon" />}</div>
   </article>;
 }
@@ -515,9 +533,9 @@ function Composer({ clockFormat, audioInputMode, tomorrowReminderTime, transcrib
     setRecordingBusy(true);
     try {
       if (!recording) {
+        setRecording(true);
         recorder.current = new WavRecorder();
         await recorder.current.start(selectedAudioInput);
-        setRecording(true);
       } else {
         await finishRecording();
       }
@@ -605,7 +623,7 @@ function Composer({ clockFormat, audioInputMode, tomorrowReminderTime, transcrib
   return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <form className="composer" onSubmit={submit}>
       <div className="dialog-header"><div><p className="eyebrow">Capture</p><h2>Add to Threadbox</h2></div><button type="button" className="icon-button" onClick={onClose}><X /></button></div>
-      <div className="title-capture"><input ref={titleRef} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Task title (optional)" /><button type="button" className="record-button camera-button" title="Take a system screenshot" onClick={takeScreenshot} disabled={recording || recordingBusy}><Camera /></button><button type="button" className={`record-button ${recording ? "recording" : ""}`} title="Record an audio note" onClick={toggleRecording} disabled={recordingBusy}>{recording ? <MicOff /> : <Mic />}</button></div>
+      <div className="title-capture"><input ref={titleRef} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Task title (optional)" /><button type="button" className="record-button camera-button" title="Take a system screenshot" onClick={takeScreenshot} disabled={recording || recordingBusy}><Camera /></button><button type="button" className={`record-button ${recording ? "recording" : ""}`} title={recording ? "Stop recording" : "Record an audio note"} onClick={toggleRecording} disabled={recordingBusy}>{recording ? <MicOff /> : <Mic />}</button></div>
       <AudioInputSelect value={selectedAudioInput} disabled={recording || recordingBusy} onChange={setSelectedAudioInput} />
       {transcribingAudioIds.length > 0 && <p className="field-help">Transcribing audio in the background. You can add the task now.</p>}
       <div className="notes-capture"><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Notes or context" rows={3} /></div>
@@ -860,15 +878,27 @@ function TaskDetails({ task, clockFormat, audioInputMode, tomorrowReminderTime, 
 
   return <div className="details-content">
     <input className="details-title" value={title} onChange={(event) => change(setTitle, event.target.value)} />
-    <div className="status-actions"><button className="icon-button close-details" onClick={onClose}><X /></button><div className="status-switcher priority-switcher">{(["high", "mid", "low"] as TaskPriority[]).map((value) => <button key={value} className={priority === value ? `active ${value}` : value} onClick={() => change(setPriority, value)}>{value}</button>)}</div><div className="toolbar-spacer" />{task.deletedAt ? <button className="restore-detail-button" title="Restore task" onClick={() => void onRestore()}><RotateCcw size={16} />Restore</button> : null}<button className="icon-button danger" title={task.deletedAt ? "Delete permanently" : "Delete task"} onClick={onDelete}><Trash2 size={18} /></button><div className="more-actions" ref={moreActionsRef}><button className="icon-button" title="More actions" onClick={() => setMoreOpen((current) => !current)}><MoreHorizontal size={19} /></button>{moreOpen && <div className="more-menu">{!task.deletedAt && <><button onClick={() => { void onUpdate({ status: "done" }); setMoreOpen(false); }}>Mark completed</button><button onClick={() => { const remindAt = new Date(Date.now() + 15 * 60_000).toISOString(); change(setDueAt, toDateTimeLocal(remindAt)); setMoreOpen(false); }}>Remind in 15 minutes</button><button disabled={!dueAt} onClick={() => { change(setDueAt, ""); setMoreOpen(false); }}>Clear due date</button></>}{sourceUrl && <button onClick={() => { void openUrl(sourceUrl); setMoreOpen(false); }}>Open source</button>}</div>}</div></div>
+    <div className="status-actions"><button className="icon-button close-details" onClick={onClose}><X /></button><div className="status-switcher priority-switcher">{(["high", "mid", "low"] as TaskPriority[]).map((value) => <button key={value} className={priority === value ? `active ${value}` : value} onClick={() => change(setPriority, value)}>{value}</button>)}</div><span className="task-created">Created {formatCreatedAt(task.createdAt)}</span><div className="toolbar-spacer" />{task.deletedAt ? <button className="restore-detail-button" title="Restore task" onClick={() => void onRestore()}><RotateCcw size={16} />Restore</button> : null}<button className="icon-button danger" title={task.deletedAt ? "Delete permanently" : "Delete task"} onClick={onDelete}><Trash2 size={18} /></button><div className="more-actions" ref={moreActionsRef}><button className="icon-button" title="More actions" onClick={() => setMoreOpen((current) => !current)}><MoreHorizontal size={19} /></button>{moreOpen && <div className="more-menu">{!task.deletedAt && <><button onClick={() => { void onUpdate({ status: "done" }); setMoreOpen(false); }}>Mark completed</button><button onClick={() => { const remindAt = new Date(Date.now() + 15 * 60_000).toISOString(); change(setDueAt, toDateTimeLocal(remindAt)); setMoreOpen(false); }}>Remind in 15 minutes</button><button disabled={!dueAt} onClick={() => { change(setDueAt, ""); setMoreOpen(false); }}>Clear due date</button></>}{sourceUrl && <button onClick={() => { void openUrl(sourceUrl); setMoreOpen(false); }}>Open source</button>}</div>}</div></div>
     <section className="detail-section"><label><span>Due and remind</span><DateTimePicker value={dueAt} onChange={(value) => change(setDueAt, value)} clockFormat={clockFormat} /></label></section>
     <ReminderPresetButtons onChoose={(preset) => change(setDueAt, toLocalDateTime(reminderDate(preset, tomorrowReminderTime)))} />
     <section className="detail-section"><label><span>Notes</span><div className="notes-capture details-notes"><textarea rows={6} value={notes} onChange={(event) => change(setNotes, event.target.value)} placeholder="Add useful context" /></div></label></section>
     <section className="detail-section details-source-fields"><label><span>Source</span><select value={sourceType} onChange={(event) => change(setSourceType, event.target.value as SourceType)}><option value="manual">Manual</option><option value="slack">Slack</option><option value="gmail">Gmail</option><option value="whatsapp">WhatsApp</option><option value="web">Web</option></select></label></section>
     <LinkEditor links={[...new Set([...(sourceUrl ? [sourceUrl] : []), ...links])]} onAdd={(link) => { if (link !== sourceUrl && !links.includes(link)) change(setLinks, [...links, link]); }} onRemove={(link) => { if (link === sourceUrl) change(setSourceUrl, ""); else change(setLinks, links.filter((item) => item !== link)); }} onError={onError} />
     {(task.sourceLabel || task.sourceAuthor || task.sourceExcerpt) && <section className="source-card"><div className="source-card-header"><div><p className="eyebrow">Source message</p><h3>{task.sourceLabel ?? sourceType}</h3></div>{sourceUrl && <button className="secondary-button" onClick={() => openUrl(sourceUrl)}><ExternalLink size={15} />Open source</button>}</div>{task.sourceAuthor && <p className="source-author">{task.sourceAuthor}</p>}{task.sourceExcerpt && <blockquote>{task.sourceExcerpt}</blockquote>}</section>}
-    <section className="detail-section"><div className="media-heading"><div className="media-label-row"><p className="field-label">Media</p><AudioInputSelect compact value={selectedAudioInput} disabled={recording || recordingBusy} onChange={setSelectedAudioInput} /></div><div className="media-actions"><button type="button" className="secondary-button" onClick={takeScreenshot} disabled={recording || recordingBusy}><Camera size={15} />Screenshot</button><button type="button" className="secondary-button" onClick={() => fileInput.current?.click()}><FilePlus2 size={15} />Add file</button><button type="button" className={`secondary-button media-record-button ${recording ? "recording" : ""}`} onClick={toggleRecording} disabled={recordingBusy}>{recording ? <MicOff size={15} /> : <Mic size={15} />}{recordingBusy ? recording ? "Finishing..." : "Starting..." : recording ? "Stop recording" : "Add audio"}</button><input ref={fileInput} className="hidden-file-input" type="file" multiple onChange={(event) => void addFiles(event.target.files)} /></div></div>{transcribingAudioIds.length > 0 && <p className="field-help">Transcribing audio in the background...</p>}{screenshots.length > 0 && <div className="detail-screenshot-grid">{screenshots.map((screenshot, index) => <div className="detail-screenshot-item" key={`${screenshot.slice(-24)}-${index}`}><button type="button" className="screenshot-preview" onClick={() => void api.openMedia(screenshot).catch((reason) => onError(String(reason)))} title="Open in system application"><img className="detail-screenshot" src={mediaSource(screenshot)} alt={`Task context ${index + 1}`} /></button><button type="button" className="download-image detail-download-image" title="Download screenshot" onClick={() => void downloadDataUrl(`screenshot-${index + 1}.png`, screenshot, onError)}><Download size={14} /></button><button type="button" className="remove-image detail-remove-image" title="Remove screenshot" onClick={() => removeScreenshot(index)}><Trash2 size={15} /></button></div>)}</div>}{fileAttachments.length > 0 && <FileAttachmentList attachments={fileAttachments} onOpen={(attachment) => void api.openMedia(attachment.dataUrl).catch((reason) => onError(String(reason)))} onDownload={(attachment) => void downloadDataUrl(attachment.name, attachment.dataUrl, onError)} onRemove={(id) => { setFileAttachments((current) => current.filter((attachment) => attachment.id !== id)); markChanged(); }} />}{audioAttachments.length > 0 && <AttachmentAudioList attachments={audioAttachments} transcribingIds={transcribingAudioIds} onError={onError} onDownload={(attachment, index) => void downloadDataUrl(`recording-${index + 1}.wav`, attachment.dataUrl, onError)} onRemove={(id) => { setAudioAttachments((current) => current.filter((attachment) => attachment.id !== id)); markChanged(); }} />}</section>
+    <section className="detail-section"><div className="media-heading"><div className="media-label-row"><p className="field-label">Media</p><AudioInputSelect compact value={selectedAudioInput} disabled={recording || recordingBusy} onChange={setSelectedAudioInput} /></div><div className="media-actions"><button type="button" className="secondary-button" onClick={takeScreenshot} disabled={recording || recordingBusy}><Camera size={15} />Screenshot</button><button type="button" className="secondary-button" onClick={() => fileInput.current?.click()}><FilePlus2 size={15} />Add file</button><button type="button" className={`secondary-button media-record-button ${recording ? "recording" : ""}`} onClick={toggleRecording} disabled={recordingBusy}>{recording ? <MicOff size={15} /> : <Mic size={15} />}{recording ? "Stop recording" : "Add audio"}</button><input ref={fileInput} className="hidden-file-input" type="file" multiple onChange={(event) => void addFiles(event.target.files)} /></div></div>{transcribingAudioIds.length > 0 && <p className="field-help">Transcribing audio in the background...</p>}{screenshots.length > 0 && <div className="detail-screenshot-grid">{screenshots.map((screenshot, index) => <div className="detail-screenshot-item" key={`${screenshot.slice(-24)}-${index}`}><button type="button" className="screenshot-preview" onClick={() => void api.openMedia(screenshot).catch((reason) => onError(String(reason)))} title="Open in system application"><img className="detail-screenshot" src={mediaSource(screenshot)} alt={`Task context ${index + 1}`} /></button><button type="button" className="download-image detail-download-image" title="Download screenshot" onClick={() => void downloadDataUrl(`screenshot-${index + 1}.png`, screenshot, onError)}><Download size={14} /></button><button type="button" className="remove-image detail-remove-image" title="Remove screenshot" onClick={() => removeScreenshot(index)}><Trash2 size={15} /></button></div>)}</div>}{fileAttachments.length > 0 && <FileAttachmentList attachments={fileAttachments} onOpen={(attachment) => void api.openMedia(attachment.dataUrl).catch((reason) => onError(String(reason)))} onDownload={(attachment) => void downloadDataUrl(attachment.name, attachment.dataUrl, onError)} onRemove={(id) => { setFileAttachments((current) => current.filter((attachment) => attachment.id !== id)); markChanged(); }} />}{audioAttachments.length > 0 && <AttachmentAudioList attachments={audioAttachments} transcribingIds={transcribingAudioIds} onError={onError} onDownload={(attachment, index) => void downloadDataUrl(`recording-${index + 1}.wav`, attachment.dataUrl, onError)} onRemove={(id) => { setAudioAttachments((current) => current.filter((attachment) => attachment.id !== id)); markChanged(); }} />}</section>
   </div>;
+}
+
+function WelcomeDialog({ shortcut, onComplete }: { shortcut: string; onComplete: () => void }) {
+  return <div className="modal-backdrop welcome-backdrop"><section className="welcome-dialog" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
+    <div className="welcome-hero"><div className="welcome-mark"><Zap size={28} /></div><p className="eyebrow">Welcome to Threadbox</p><h2 id="welcome-title">Catch it now. Remember it later.</h2><p>Turn a passing message, thought, screenshot or voice note into a task before it disappears.</p></div>
+    <div className="welcome-flow">
+      <article><span><Zap size={19} /></span><div><strong>Capture in seconds</strong><p>Press <kbd>{shortcutLabel(shortcut)}</kbd> anywhere, then type, speak or attach context.</p></div></article>
+      <article><span><Paperclip size={19} /></span><div><strong>Keep the useful context</strong><p>Links, screenshots, recordings and files stay beside the task.</p></div></article>
+      <article><span><BellRing size={19} /></span><div><strong>Let Threadbox bring it back</strong><p>Set a reminder and get a visible nudge when it is time to act.</p></div></article>
+    </div>
+    <div className="welcome-footer"><p><SlidersHorizontal size={15} /> Shortcuts, audio, reminders and retention can all be adjusted in Settings.</p><button className="primary-button" onClick={onComplete}>Start using Threadbox</button></div>
+  </section></div>;
 }
 
 function SettingsDialog({ settings, onSettings, onClose, onError }: { settings: AppSettings; onSettings: (settings: AppSettings) => void; onClose: () => void; onError: (error: string) => void }) {
@@ -904,6 +934,7 @@ function SettingsDialog({ settings, onSettings, onClose, onError }: { settings: 
     <section className="settings-section"><h3>Task retention</h3><p>Completed and deleted tasks are permanently removed with all attached media after this period.</p><label className="setting-select"><span>Keep tasks for</span><select value={settings.taskRetentionDays} onChange={(event) => changeSettings({ taskRetentionDays: Number(event.target.value) })}>{[1, 3, 7, 14, 30, 60, 90, 180, 365].map((days) => <option value={days} key={days}>{days} {days === 1 ? "day" : "days"}</option>)}</select></label></section>
     <section className="settings-section"><h3>Quick capture</h3><p>The shortcut brings Threadbox above other applications and opens a new task.</p><label className="setting-select"><span>Keyboard shortcut</span><select value={settings.quickCaptureShortcut} onChange={(event) => changeSettings({ quickCaptureShortcut: event.target.value })}><option value="CommandOrControl+Shift+Space">Ctrl Shift Space</option><option value="CommandOrControl+Alt+Space">Ctrl Alt Space</option><option value="CommandOrControl+Shift+A">Ctrl Shift A</option><option value="CommandOrControl+Alt+T">Ctrl Alt T</option></select></label></section>
     <section className="settings-section"><h3>Date and time</h3><p>Choose how hours are displayed in task dates and the clock picker.</p><label className="setting-select"><span>Clock format</span><select value={settings.clockFormat} onChange={(event) => changeSettings({ clockFormat: event.target.value as AppSettings["clockFormat"] })}><option value="24h">24-hour clock</option><option value="12h">12-hour clock</option></select></label></section>
+    <section className="settings-section"><h3>Welcome guide</h3><p>Show the short introduction again after this Settings window is closed.</p><button className="secondary-button" disabled={!settings.welcomeCompleted} onClick={() => void changeSettings({ welcomeCompleted: false })}>Show welcome guide again</button>{!settings.welcomeCompleted && <p className="setting-confirmation"><Check size={14} />Ready. Close Settings to open the welcome guide.</p>}</section>
     <section className="settings-section"><h3>Backup</h3><p>Export tasks, message references and attachments to a portable JSON file.</p><button className="secondary-button" onClick={backup}>Export backup</button></section>
   </div></div>;
 }
@@ -1016,6 +1047,12 @@ export function appendTranscriptNotes(notes: string, transcriptNotes: string[]):
     if (!transcriptNote || current.includes(transcriptNote)) return current;
     return [current, transcriptNote].filter(Boolean).join("\n\n");
   }, notes);
+}
+
+export function formatCreatedAt(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "at an unknown time";
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
 function AttachmentAudioList({ attachments, transcribingIds = [], onDownload, onRemove, onError }: { attachments: AudioAttachment[]; transcribingIds?: string[]; onDownload: (attachment: AudioAttachment, index: number) => void; onRemove: (id: string) => void | Promise<void>; onError: (message: string) => void }) {
