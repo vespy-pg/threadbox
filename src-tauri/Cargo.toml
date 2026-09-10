@@ -21,7 +21,7 @@ ashpd = { version = "0.13", default-features = false, features = ["tokio", "scre
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 cpal = { version = "0.18", features = ["pulseaudio"] }
-directories = "5"
+directories = "6"
 hound = "3.5"
 open = "5"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
