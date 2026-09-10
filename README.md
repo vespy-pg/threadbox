@@ -13,6 +13,14 @@ Linux release packages are built on Ubuntu 22.04 to remain compatible with Ubunt
 
 No developer tools are required.
 
+To download and install Threadbox with one command, paste this into a terminal. The downloaded package is removed automatically after installation:
+
+```bash
+(package_file=$(mktemp --suffix=.deb) && trap 'rm -f "$package_file"' EXIT && wget -qO "$package_file" https://github.com/vespy-pg/threadbox/releases/download/v0.1.16/Threadbox_0.1.16_amd64.deb && sudo apt install "$package_file")
+```
+
+Alternatively, install it through the graphical interface:
+
 1. Open the [latest Threadbox release](https://github.com/vespy-pg/threadbox/releases/latest).
 2. Under **Assets**, download `Threadbox_0.1.16_amd64.deb`.
 3. Open the downloaded file and select **Install** in the system software window.
