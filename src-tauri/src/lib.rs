@@ -11,6 +11,7 @@ mod screenshot;
 mod secrets;
 mod settings;
 mod speech;
+mod transcriptions;
 mod workspace;
 
 use std::path::PathBuf;
@@ -28,6 +29,7 @@ use serde_json::Value;
 use settings::AppSettings;
 use speech::ModelStatus;
 use tauri_plugin_autostart::ManagerExt;
+use transcriptions::{MeetingTranscript, ProcessingJob};
 use workspace::{
     Organization, OrganizationInput, Person, PersonInput, Project, ProjectInput, ProjectLanguage,
     ProjectMember,
@@ -331,6 +333,37 @@ async fn stop_meeting_recording(
     }
 }
 
+#[tauri::command]
+fn meeting_transcript(
+    database: tauri::State<'_, Database>,
+    id: String,
+) -> AppResult<Option<MeetingTranscript>> {
+    database.meeting_transcript(&id)
+}
+
+#[tauri::command]
+fn meeting_transcription_jobs(
+    database: tauri::State<'_, Database>,
+    id: String,
+) -> AppResult<Vec<ProcessingJob>> {
+    database.list_meeting_jobs(&id)
+}
+
+#[tauri::command]
+async fn transcribe_meeting(
+    database: tauri::State<'_, Database>,
+    id: String,
+) -> AppResult<MeetingTranscript> {
+    let settings = AppSettings::load().unwrap_or_default().speech;
+    let database = database.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let job = database.enqueue_meeting_transcription(&id)?;
+        database.process_transcription_job(&job.id, &settings.model, &settings.language)
+    })
+    .await
+    .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
+}
+
 /// Stored media is recorded relative to this directory, so the interface needs it to display a file.
 #[tauri::command]
 fn media_root(database: tauri::State<'_, Database>) -> AppResult<String> {
@@ -522,6 +555,7 @@ fn stop_recording_playback(player: tauri::State<'_, NativeAudioPlayer>) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let database = Database::open_default().expect("failed to initialize the Threadbox database");
+    let resume_database = database.clone();
     if let Err(error) = integration::register_firefox_native_host() {
         eprintln!("Could not register the Firefox native messaging host: {error}");
     }
@@ -538,13 +572,26 @@ pub fn run() {
         .manage(NativeAudioRecorder::default())
         .manage(MeetingAudioRecorder::default())
         .manage(NativeAudioPlayer::default())
-        .setup(|app| {
+        .setup(move |app| {
             app.handle().plugin(tauri_plugin_autostart::init(
                 tauri_plugin_autostart::MacosLauncher::LaunchAgent,
                 Some(vec!["--autostart"]),
             ))?;
 
             let settings = AppSettings::load().unwrap_or_default();
+            let resume_speech = settings.speech.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                if let Ok(connection) = resume_database.connect() {
+                    if let Err(error) = transcriptions::recover_interrupted_jobs(&connection) {
+                        eprintln!("Could not recover interrupted transcriptions: {error}");
+                    }
+                }
+                if let Err(error) = resume_database
+                    .resume_transcription_jobs(&resume_speech.model, &resume_speech.language)
+                {
+                    eprintln!("Could not resume pending transcriptions: {error}");
+                }
+            });
             let autostart = app.autolaunch();
             let autostart_result = if settings.start_at_login {
                 autostart.enable()
@@ -608,6 +655,9 @@ pub fn run() {
             delete_meeting,
             start_meeting_recording,
             stop_meeting_recording,
+            meeting_transcript,
+            meeting_transcription_jobs,
+            transcribe_meeting,
             media_root,
             project_language,
             save_data_url,

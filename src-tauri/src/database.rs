@@ -165,6 +165,10 @@ impl Database {
             crate::meetings::migrate_schema(&connection)?;
             connection.pragma_update(None, "user_version", 6)?;
         }
+        if version < 7 {
+            crate::transcriptions::migrate_schema(&connection)?;
+            connection.pragma_update(None, "user_version", 7)?;
+        }
         Ok(())
     }
 

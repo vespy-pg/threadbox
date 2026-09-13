@@ -3,7 +3,7 @@ import { ArrowRight, BriefcaseBusiness, CalendarDays, CheckCircle2, Clock3, File
 
 import { api } from "./api";
 import { ProjectDetail, projectPath, type Workspace } from "./projects";
-import type { Meeting, Organization, OrganizationMember, Person, Project, Task } from "./types";
+import type { Meeting, MeetingTranscript, Organization, OrganizationMember, Person, ProcessingJob, Project, Task } from "./types";
 
 export type WorkbenchArea = "organization-overview" | "projects" | "people" | "integrations" | "project-overview" | "threads" | "meetings" | "documents";
 
@@ -119,6 +119,7 @@ export function MeetingsWorkspace({ project, organization, workspace, activeReco
   const [title, setTitle] = useState("");
   const [scheduledStart, setScheduledStart] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [expandedTranscriptId, setExpandedTranscriptId] = useState<string | null>(null);
   const projects = workspace.projects.filter((item) => item.organizationId === organization.id);
   const load = useCallback(async () => {
     try { setMeetings(await api.listMeetings(project.id)); }
@@ -165,7 +166,7 @@ export function MeetingsWorkspace({ project, organization, workspace, activeReco
 
   return <WorkspacePage eyebrow={`${organization.name} / ${project.name}`} title="Meetings" description="Plan, capture and review the conversations that create work." action={<button className="primary-button" onClick={() => setCreating(true)}><Plus size={16} />New meeting</button>}>
     {creating && <section className="meeting-create-card"><div className="meeting-create-fields"><label><span>Meeting title</span><input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Weekly project sync" /></label><label><span>Scheduled start</span><input type="datetime-local" value={scheduledStart} onChange={(event) => setScheduledStart(event.target.value)} /></label></div><p><Mic size={14} />Recording captures your microphone on the left channel and the system audio on the right. Ctrl/Cmd+Shift+M starts immediately in the current project.</p><div className="inline-create-actions"><button className="text-button" onClick={() => setCreating(false)}>Cancel</button><button className="secondary-button" disabled={!title.trim() || busyId === "new"} onClick={() => void create(false)}>Save for later</button><button className="primary-button recording-action" disabled={!title.trim() || busyId === "new" || Boolean(activeRecording)} onClick={() => void create(true)}><Mic size={15} />Save and record</button></div></section>}
-    <div className="meeting-list">{meetings.map((meeting) => <article key={meeting.id} className={`meeting-card ${meeting.status === "recording" ? "recording" : ""}`}><div className={`meeting-status-icon ${meeting.status}`} >{meeting.status === "recording" ? <Mic size={18} /> : meeting.status === "recorded" ? <CheckCircle2 size={18} /> : <CalendarDays size={18} />}</div><div className="meeting-card-main"><div className="meeting-card-heading"><input aria-label="Meeting title" defaultValue={meeting.title} onBlur={(event) => { const next = event.target.value.trim(); if (next && next !== meeting.title) void update(meeting, { title: next }); }} /><span className={`status-pill ${meeting.status}`}>{meeting.status}</span></div><div className="meeting-meta"><span><Clock3 size={13} />{formatMeetingDate(meeting.scheduledStart ?? meeting.startedAt ?? meeting.createdAt)}</span>{meeting.durationSeconds !== null && <span>{formatMeetingDuration(meeting.durationSeconds)}</span>}<label><span>Project</span><select value={meeting.projectId ?? ""} disabled={busyId === meeting.id} onChange={(event) => void update(meeting, { projectId: event.target.value || null })}><option value="">Unassigned</option>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div><p className="meeting-track-note">{meeting.recordingPath ? "Stereo source saved: microphone left, system audio right." : meeting.status === "recording" ? "Both audio tracks are being captured now." : "Ready for two-track recording."}</p></div><div className="meeting-actions">{meeting.status === "planned" && <button className="primary-button recording-action" disabled={Boolean(activeRecording) || busyId === meeting.id} onClick={() => void start(meeting)}><Mic size={15} />Record</button>}{meeting.status === "recording" && activeRecording?.id === meeting.id && <button className="stop-meeting-button" onClick={() => void onStop()}><Square size={14} />Stop</button>}{meeting.recordingPath && <button className="secondary-button" onClick={() => void api.playRecording(meeting.recordingPath!).catch((reason) => onError(String(reason)))}><Play size={14} />Play</button>}<button className="icon-button danger" aria-label="Delete meeting" disabled={meeting.status === "recording" || busyId === meeting.id} onClick={() => void remove(meeting)}><Trash2 size={16} /></button></div></article>)}{meetings.length === 0 && !creating && <section className="empty-module compact"><div className="module-icon"><CalendarDays size={25} /></div><h2>No meetings in this project</h2><p>Create one now or connect Google Calendar when the integration becomes available.</p><button className="secondary-button" onClick={onIntegrations}><Plug size={15} />Open integrations</button></section>}</div>
+    <div className="meeting-list">{meetings.map((meeting) => <article key={meeting.id} className={`meeting-card ${meeting.status === "recording" ? "recording" : ""}`}><div className={`meeting-status-icon ${meeting.status}`} >{meeting.status === "recording" ? <Mic size={18} /> : meeting.status === "recorded" ? <CheckCircle2 size={18} /> : <CalendarDays size={18} />}</div><div className="meeting-card-main"><div className="meeting-card-heading"><input aria-label="Meeting title" defaultValue={meeting.title} onBlur={(event) => { const next = event.target.value.trim(); if (next && next !== meeting.title) void update(meeting, { title: next }); }} /><span className={`status-pill ${meeting.status}`}>{meeting.status}</span></div><div className="meeting-meta"><span><Clock3 size={13} />{formatMeetingDate(meeting.scheduledStart ?? meeting.startedAt ?? meeting.createdAt)}</span>{meeting.durationSeconds !== null && <span>{formatMeetingDuration(meeting.durationSeconds)}</span>}<label><span>Project</span><select value={meeting.projectId ?? ""} disabled={busyId === meeting.id} onChange={(event) => void update(meeting, { projectId: event.target.value || null })}><option value="">Unassigned</option>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div><p className="meeting-track-note">{meeting.recordingPath ? "Stereo source saved: microphone left, system audio right." : meeting.status === "recording" ? "Both audio tracks are being captured now." : "Ready for two-track recording."}</p>{expandedTranscriptId === meeting.id && <MeetingTranscriptPanel meeting={meeting} onError={onError} />}</div><div className="meeting-actions">{meeting.status === "planned" && <button className="primary-button recording-action" disabled={Boolean(activeRecording) || busyId === meeting.id} onClick={() => void start(meeting)}><Mic size={15} />Record</button>}{meeting.status === "recording" && activeRecording?.id === meeting.id && <button className="stop-meeting-button" onClick={() => void onStop()}><Square size={14} />Stop</button>}{meeting.recordingPath && <button className="secondary-button" onClick={() => void api.playRecording(meeting.recordingPath!).catch((reason) => onError(String(reason)))}><Play size={14} />Play</button>}{meeting.recordingPath && <button className="secondary-button" onClick={() => setExpandedTranscriptId((current) => current === meeting.id ? null : meeting.id)}><FileText size={14} />Transcript</button>}<button className="icon-button danger" aria-label="Delete meeting" disabled={meeting.status === "recording" || busyId === meeting.id} onClick={() => void remove(meeting)}><Trash2 size={16} /></button></div></article>)}{meetings.length === 0 && !creating && <section className="empty-module compact"><div className="module-icon"><CalendarDays size={25} /></div><h2>No meetings in this project</h2><p>Create one now or connect Google Calendar when the integration becomes available.</p><button className="secondary-button" onClick={onIntegrations}><Plug size={15} />Open integrations</button></section>}</div>
   </WorkspacePage>;
 }
 
@@ -176,6 +177,53 @@ export function MeetingRecordingBanner({ meeting, project, onStop }: { meeting: 
   return <aside className="meeting-recording-banner" aria-live="polite"><span className="recording-pulse" /><div><strong>Recording {meeting.title}</strong><small>{project?.name ?? "Unassigned"} - microphone + system audio - {formatMeetingDuration(seconds)}</small></div><button disabled={stopping} onClick={() => { setStopping(true); void onStop().finally(() => setStopping(false)); }}><Square size={14} />{stopping ? "Saving..." : "Stop and save"}</button></aside>;
 }
 
+function MeetingTranscriptPanel({ meeting, onError }: { meeting: Meeting; onError: (message: string) => void }) {
+  const [transcript, setTranscript] = useState<MeetingTranscript | null>(null);
+  const [jobs, setJobs] = useState<ProcessingJob[]>([]);
+  const [processing, setProcessing] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const [nextTranscript, nextJobs] = await Promise.all([
+        api.meetingTranscript(meeting.id),
+        api.meetingTranscriptionJobs(meeting.id),
+      ]);
+      setTranscript(nextTranscript);
+      setJobs(nextJobs);
+    } catch (reason) {
+      onError(String(reason));
+    }
+  }, [meeting.id, onError]);
+
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!jobs.some((job) => job.status === "queued" || job.status === "running")) return;
+    const timer = window.setInterval(() => void load(), 2_000);
+    return () => window.clearInterval(timer);
+  }, [jobs, load]);
+
+  async function transcribe() {
+    setProcessing(true);
+    try {
+      setTranscript(await api.transcribeMeeting(meeting.id));
+      await load();
+    } catch (reason) {
+      onError(String(reason));
+      await load();
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  const latestJob = jobs[0] ?? null;
+  return <section className="meeting-transcript">
+    <div className="meeting-transcript-heading"><div><strong>Source transcript</strong><small>{transcript ? `Microphone: ${transcript.microphoneLanguage} - system: ${transcript.systemLanguage} - ${transcript.modelId}` : "Timestamped microphone and system channels are stored separately."}</small></div>{!processing && latestJob?.status !== "running" && <button className="secondary-button" onClick={() => void transcribe()}>{transcript ? "Transcribe again" : latestJob?.status === "failed" ? "Retry transcription" : "Transcribe recording"}</button>}{(processing || latestJob?.status === "running" || latestJob?.status === "queued") && <span className="transcription-state">Processing...</span>}</div>
+    {latestJob?.status === "failed" && <p className="transcription-error">{latestJob.error}</p>}
+    {transcript && <div className="transcript-segments">{transcript.segments.map((segment) => <div className={`transcript-segment ${segment.channel}`} key={segment.id}><button title="Play the full source recording" onClick={() => void api.playRecording(meeting.recordingPath!).catch((reason) => onError(String(reason)))}>{formatTranscriptTime(segment.startMs)}</button><span>{segment.channel === "microphone" ? "You" : "Others"}</span><p>{segment.text}</p></div>)}</div>}
+    {!transcript && latestJob?.status !== "failed" && !processing && <p className="transcript-empty">No transcript yet. Threadbox will use the configured meeting model and project language.</p>}
+  </section>;
+}
+
 function elapsedRecordingSeconds(startedAt: string | null): number {
   if (!startedAt) return 0;
   return Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1_000));
@@ -184,6 +232,12 @@ function elapsedRecordingSeconds(startedAt: string | null): number {
 function formatMeetingDuration(seconds: number): string {
   const rounded = Math.max(0, Math.floor(seconds));
   return `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, "0")}`;
+}
+
+function formatTranscriptTime(milliseconds: number): string {
+  const totalSeconds = Math.floor(milliseconds / 1_000);
+  const minutes = Math.floor(totalSeconds / 60);
+  return `${minutes}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
 function formatMeetingDate(value: string): string {

@@ -111,7 +111,7 @@ Open **Settings** in Threadbox and select **Download model**. Threadbox download
 
 On X11, the screenshot button immediately starts area selection. Other Linux sessions use the standard desktop screenshot portal. Threadbox hides while capture is active, then returns to the foreground and attaches the image. Clipboard image paste is available anywhere in the new-task dialog.
 
-The global task capture shortcut, login autostart, 12/24-hour clock and overdue reminder interval can be changed in **Settings**. `Ctrl/Cmd+Shift+M` starts a two-track meeting recording in the current project. Autostart is enabled by default and automatic launches stay hidden in the system tray. The reminder sound can be tested there. Sticky reminders can bring Threadbox above other applications and require the user to complete, snooze or open an overdue task. They can be disabled independently in Settings. Overdue reminders stop after the task is completed or when reminders are disabled.
+The global task capture shortcut, login autostart, 12/24-hour clock and overdue reminder interval can be changed in **Settings**. `Ctrl/Cmd+Shift+M` starts a two-track meeting recording in the current project. A saved meeting can be transcribed per microphone and system-audio channel with timestamps, using the configured local speech model. Autostart is enabled by default and automatic launches stay hidden in the system tray. The reminder sound can be tested there. Sticky reminders can bring Threadbox above other applications and require the user to complete, snooze or open an overdue task. They can be disabled independently in Settings. Overdue reminders stop after the task is completed or when reminders are disabled.
 
 ## Build Linux packages
 

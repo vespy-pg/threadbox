@@ -44,7 +44,7 @@ transcripts, and learning from the user's corrections.
 
 ## Status
 
-**Steps 1 to 4 are implemented**, on branch `feature/meeting-agent-domain-foundation`, not merged.
+**Steps 1 to 5 are implemented**, on branch `feature/meeting-agent-domain-foundation`, not merged.
 The application shell has subsequently been reorganised around organisations and projects before
 starting step 4. `information-architecture.md` records the product structure this establishes.
 
@@ -166,4 +166,24 @@ Verified with clippy using `-D warnings`, 52 Rust tests including four recording
 31 interface tests, and `tsc --noEmit`. Physical microphone and monitor capture remains a device-level
 acceptance check after the refreshed application is launched.
 
-- Steps 5 to 7: not started.
+### Step 5, transcription pipeline
+
+- Schema version 7 adds persisted processing jobs, one source transcript per meeting and timestamped
+  segments separated into microphone and system channels. Interrupted running jobs return to the
+  queue when the primary application instance starts, and queued work resumes in the background.
+- Whisper reads the left and right channels independently, preserves its segment timestamps and
+  records the detected language per channel. A project language override is resolved before the
+  global setting, while `auto` keeps per-channel detection enabled.
+- Vocabulary sets, terms and project attachments have their data foundation in the same migration.
+  The recognition prompt contains the highest-priority terms from the meeting project plus
+  always-active sets, with a strict size bound. Vocabulary management remains step 7.
+- The Meetings surface starts or retries a transcription, shows persisted failures, polls work that
+  resumed after a restart and presents the source transcript as a time-ordered conversation between
+  the user and other participants. Re-running recognition replaces derived segments but preserves
+  the original recording.
+
+Verified with clippy using `-D warnings`, 55 Rust tests, 31 interface tests and `tsc --noEmit`.
+Physical recognition quality and processing time remain device-level acceptance checks with a real
+downloaded model and meeting recording.
+
+- Steps 6 and 7: not started.

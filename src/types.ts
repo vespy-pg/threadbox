@@ -242,6 +242,42 @@ export interface MeetingInput {
   scheduledStart?: string | null;
 }
 
+export type ProcessingJobStatus = "queued" | "running" | "completed" | "failed";
+
+export interface ProcessingJob {
+  id: string;
+  meetingId: string;
+  status: ProcessingJobStatus;
+  attempts: number;
+  error: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
+}
+
+export interface TranscriptSegment {
+  id: string;
+  channel: "microphone" | "system";
+  startMs: number;
+  endMs: number;
+  text: string;
+  originalText: string;
+  sequence: number;
+}
+
+export interface MeetingTranscript {
+  id: string;
+  meetingId: string;
+  microphoneLanguage: string;
+  systemLanguage: string;
+  modelId: string;
+  promptVersion: string;
+  createdAt: string;
+  updatedAt: string;
+  segments: TranscriptSegment[];
+}
+
 export interface Person {
   id: string;
   displayName: string;

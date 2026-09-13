@@ -9,7 +9,9 @@ use std::{fs, io::Cursor, path::PathBuf};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use directories::ProjectDirs;
 use serde::Serialize;
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+use whisper_rs::{
+    get_lang_str, FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters,
+};
 
 use crate::error::{AppError, AppResult};
 
@@ -72,6 +74,21 @@ pub struct ModelStatus {
     pub approximate_bytes: u64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpeechSegment {
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpeechTranscript {
+    pub language: String,
+    pub segments: Vec<SpeechSegment>,
+}
+
 pub fn models() -> &'static [SpeechModel] {
     &MODELS
 }
@@ -131,27 +148,54 @@ pub fn download(id: &str) -> AppResult<ModelStatus> {
 
 /// `language` is [`LANGUAGE_AUTO`] for detection per recording, or an ISO 639-1 code.
 pub fn transcribe(wav_base64: &str, model_id: &str, language: &str) -> AppResult<String> {
-    let model = status(model_id)?;
-    if !model.installed {
-        return Err(AppError::InvalidInput(format!(
-            "Download the {} speech model in Settings before recording",
-            model.label
-        )));
-    }
     let bytes = STANDARD
         .decode(wav_base64)
         .map_err(|error| AppError::InvalidInput(format!("Invalid audio data: {error}")))?;
+    let result = transcribe_wav_bytes(&bytes, model_id, language, None, None)?;
+    Ok(result
+        .segments
+        .into_iter()
+        .map(|segment| segment.text)
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_string())
+}
+
+/// Transcribe one channel of a 16 kHz WAV while preserving Whisper's segment timestamps.
+pub fn transcribe_wav_bytes(
+    bytes: &[u8],
+    model_id: &str,
+    language: &str,
+    channel: Option<usize>,
+    initial_prompt: Option<&str>,
+) -> AppResult<SpeechTranscript> {
+    let model = status(model_id)?;
+    if !model.installed {
+        return Err(AppError::InvalidInput(format!(
+            "Download the {} speech model in Settings before transcribing",
+            model.label
+        )));
+    }
     let mut reader = hound::WavReader::new(Cursor::new(bytes))?;
     let spec = reader.spec();
-    if spec.sample_rate != 16_000 || spec.channels != 1 {
+    if spec.sample_rate != 16_000 || !matches!(spec.channels, 1 | 2) {
         return Err(AppError::InvalidInput(
-            "Threadbox expects 16 kHz mono audio".into(),
+            "Threadbox expects 16 kHz mono or stereo audio".into(),
+        ));
+    }
+    let selected_channel = channel.unwrap_or(0);
+    if selected_channel >= spec.channels as usize {
+        return Err(AppError::InvalidInput(
+            "The requested audio channel does not exist".into(),
         ));
     }
     let samples = reader
         .samples::<i16>()
         .collect::<Result<Vec<_>, _>>()?
         .into_iter()
+        .skip(selected_channel)
+        .step_by(spec.channels as usize)
         .map(|sample| sample as f32 / i16::MAX as f32)
         .collect::<Vec<_>>();
     let context = WhisperContext::new_with_params(&model.path, WhisperContextParameters::default())
@@ -167,21 +211,48 @@ pub fn transcribe(wav_base64: &str, model_id: &str, language: &str) -> AppResult
     params.set_print_progress(false);
     params.set_print_realtime(false);
     params.set_print_timestamps(false);
+    if let Some(prompt) = initial_prompt.filter(|prompt| !prompt.trim().is_empty()) {
+        params.set_initial_prompt(prompt);
+    }
     state
         .full(params, &samples)
         .map_err(|error| AppError::Speech(error.to_string()))?;
-    let mut transcript = String::new();
+    let detected_language = if detect {
+        let id = state
+            .full_lang_id_from_state()
+            .map_err(|error| AppError::Speech(error.to_string()))?;
+        get_lang_str(id).unwrap_or(LANGUAGE_AUTO).to_string()
+    } else {
+        language.to_string()
+    };
+    let mut segments = Vec::new();
     for index in 0..state
         .full_n_segments()
         .map_err(|error| AppError::Speech(error.to_string()))?
     {
-        transcript.push_str(
-            &state
-                .full_get_segment_text(index)
-                .map_err(|error| AppError::Speech(error.to_string()))?,
-        );
+        let text = state
+            .full_get_segment_text(index)
+            .map_err(|error| AppError::Speech(error.to_string()))?
+            .trim()
+            .to_string();
+        if !text.is_empty() {
+            segments.push(SpeechSegment {
+                start_ms: state
+                    .full_get_segment_t0(index)
+                    .map_err(|error| AppError::Speech(error.to_string()))?
+                    * 10,
+                end_ms: state
+                    .full_get_segment_t1(index)
+                    .map_err(|error| AppError::Speech(error.to_string()))?
+                    * 10,
+                text,
+            });
+        }
     }
-    Ok(transcript.trim().to_string())
+    Ok(SpeechTranscript {
+        language: detected_language,
+        segments,
+    })
 }
 
 #[cfg(test)]

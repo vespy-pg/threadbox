@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { readImage } from "@tauri-apps/plugin-clipboard-manager";
 import { setMediaRoot } from "./media";
-import type { AppSettings, ApiProvider, LanguageModelStatus, Meeting, MeetingInput, ModelStatus, Organization, OrganizationMember, Person, Project, ProjectDocument, ProjectDocumentInput, ProjectLanguage, ProviderProbe, SpeechModelId, Task, TaskInput, TaskPatch } from "./types";
+import type { AppSettings, ApiProvider, LanguageModelStatus, Meeting, MeetingInput, MeetingTranscript, ModelStatus, Organization, OrganizationMember, Person, ProcessingJob, Project, ProjectDocument, ProjectDocumentInput, ProjectLanguage, ProviderProbe, SpeechModelId, Task, TaskInput, TaskPatch } from "./types";
 
 const inTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 
@@ -250,6 +250,18 @@ export const api = {
 
   async stopMeetingRecording(id: string): Promise<Meeting> {
     return invoke<Meeting>("stop_meeting_recording", { id });
+  },
+
+  async meetingTranscript(id: string): Promise<MeetingTranscript | null> {
+    return invoke<MeetingTranscript | null>("meeting_transcript", { id });
+  },
+
+  async meetingTranscriptionJobs(id: string): Promise<ProcessingJob[]> {
+    return invoke<ProcessingJob[]>("meeting_transcription_jobs", { id });
+  },
+
+  async transcribeMeeting(id: string): Promise<MeetingTranscript> {
+    return invoke<MeetingTranscript>("transcribe_meeting", { id });
   },
 
   /** Fetched once so the interface can resolve the relative references stored in the database. */

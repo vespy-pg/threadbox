@@ -1,6 +1,6 @@
 # Domain model
 
-Status: implemented through meeting capture. Transcription and derived artefacts remain, see
+Status: implemented through timestamped meeting transcription. Derived analysis artefacts remain, see
 `implementation-plan.md`.
 
 ## Scope of this document
