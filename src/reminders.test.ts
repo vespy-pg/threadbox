@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { appendTranscriptNotes, isGeneratedTaskTitle, normalizeLink, reminderDate, sortTasksForView, taskTitle, timestampedTranscript, transcriptTitle } from "./App";
+import { appendTranscriptNotes, isGeneratedTaskTitle, normalizeLink, reminderContextLabel, reminderDate, sortTasksForView, taskTitle, timestampedTranscript, transcriptTitle } from "./App";
+import type { Workspace } from "./projects";
 import type { Task } from "./types";
 
 describe("reminder presets", () => {
@@ -11,6 +12,21 @@ describe("reminder presets", () => {
 
   it("uses the configured local time tomorrow", () => {
     expect(reminderDate("tomorrow", "09:15", now)).toEqual(new Date(2026, 8, 9, 9, 15, 0));
+  });
+});
+
+describe("reminder context", () => {
+  const workspace: Workspace = {
+    organizations: [{ id: "org", name: "Vespy", notes: "", contextSharing: "isolated", createdAt: "now", updatedAt: "now", deletedAt: null }],
+    projects: [{ id: "project", organizationId: "org", parentId: null, name: "DINPanel", description: "", contextSharing: "inherit", language: null, terminologyLanguage: null, createdAt: "now", updatedAt: "now", deletedAt: null }],
+  };
+
+  it("shows the organization and project for assigned work", () => {
+    expect(reminderContextLabel({ projectId: "project" } as Task, workspace)).toBe("Vespy / DINPanel");
+  });
+
+  it("labels unassigned inbox work explicitly", () => {
+    expect(reminderContextLabel({ projectId: null } as Task, workspace)).toBe("No organisation / Inbox (unassigned)");
   });
 });
 

@@ -9,6 +9,8 @@ describes shipped behaviour unless it says so.
   current and future work modules.
 - `project-workflows.md` - project scenarios for notes, delegation, meetings, messages, calls and
   reviewed automation, plus the shared interaction model behind them.
+- `communication-integrations.md` - feasibility, provider constraints and the recommended delivery
+  order for calendar, messaging, calling and a local language model.
 - `domain-model.md` - organisations, projects, people, documents, and what sharing between projects
   means for a single user.
 - `model-providers.md` - speech recognition and language model options, including why signing in to a

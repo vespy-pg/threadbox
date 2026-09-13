@@ -345,6 +345,7 @@ blockquote { margin: 8px 0 0; padding-left: 12px; border-left: 2px solid #a9c8b9
 .reminder-title { display: grid; flex: 1; gap: 4px; min-width: 0; padding: 0; border: 0; background: transparent; cursor: pointer; text-align: left; }
 .reminder-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .reminder-title span { color: var(--muted); font-size: 10px; }
+.reminder-title .reminder-context { color: var(--green-dark); font-size: 9px; font-weight: 750; text-transform: uppercase; letter-spacing: .45px; }
 .reminder-actions { display: flex; align-items: center; gap: 7px; }
 .reminder-actions button { padding: 7px 8px; border: 1px solid var(--line); border-radius: 7px; color: var(--green-dark); background: #f7faf8; cursor: pointer; font-size: 9px; font-weight: 700; }
 .reminder-actions .done-reminder { margin-left: auto; color: white; border-color: var(--green); background: var(--green); }

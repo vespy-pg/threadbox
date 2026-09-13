@@ -10,7 +10,7 @@ use tauri::{
 };
 
 use crate::{
-    database::Database,
+    database::{Database, Task},
     error::{AppError, AppResult},
     native_audio,
     settings::AppSettings,
@@ -83,19 +83,24 @@ fn start_reminder_worker(app: AppHandle) {
                             .is_ok();
                     let notification_shown = if tasks.len() == 1 {
                         let task = &tasks[0];
-                        let body = task
-                            .source_label
-                            .as_deref()
-                            .map(|label| format!("From {label}"))
-                            .unwrap_or_else(|| "Threadbox reminder".into());
+                        let mut body = reminder_context(&database, task);
+                        if let Some(source) = task.source_label.as_deref() {
+                            body.push_str(&format!("\nSource: {source}"));
+                        }
                         show_system_notification(&task.title, &body)
                     } else if has_due_tasks {
                         let body = tasks
                             .iter()
                             .take(3)
-                            .map(|task| task.title.as_str())
+                            .map(|task| {
+                                format!(
+                                    "{}: {}",
+                                    reminder_context(&database, task).replace('\n', " / "),
+                                    task.title
+                                )
+                            })
                             .collect::<Vec<_>>()
-                            .join(", ");
+                            .join("\n");
                         show_system_notification(
                             &format!("{} Threadbox reminders", tasks.len()),
                             &body,
@@ -122,6 +127,28 @@ fn start_reminder_worker(app: AppHandle) {
         }
         std::thread::sleep(Duration::from_secs(20));
     });
+}
+
+fn reminder_context(database: &Database, task: &Task) -> String {
+    let Some(project_id) = task.project_id.as_deref() else {
+        return format_reminder_context(None, None);
+    };
+    let Ok(project) = database.get_project(project_id) else {
+        return format_reminder_context(None, Some("Unknown project"));
+    };
+    let organization = database.get_organization(&project.organization_id).ok();
+    format_reminder_context(
+        organization.as_ref().map(|item| item.name.as_str()),
+        Some(&project.name),
+    )
+}
+
+fn format_reminder_context(organization: Option<&str>, project: Option<&str>) -> String {
+    format!(
+        "Organisation: {}\nProject: {}",
+        organization.unwrap_or("None"),
+        project.unwrap_or("Inbox (unassigned)")
+    )
 }
 
 #[cfg(target_os = "linux")]
@@ -175,6 +202,8 @@ fn write_manifest(directory: PathBuf) -> AppResult<()> {
 
 #[cfg(test)]
 mod tests {
+    use super::format_reminder_context;
+
     #[test]
     fn tray_icon_is_32_px_rgba8() {
         let icon = include_bytes!("../icons/32x32.png");
@@ -183,5 +212,17 @@ mod tests {
         assert_eq!(u32::from_be_bytes(icon[20..24].try_into().unwrap()), 32);
         assert_eq!(icon[24], 8, "tray icon must use 8-bit channels");
         assert_eq!(icon[25], 6, "tray icon must use RGBA color");
+    }
+
+    #[test]
+    fn reminder_context_always_names_the_organization_and_project() {
+        assert_eq!(
+            format_reminder_context(Some("Vespy"), Some("DINPanel")),
+            "Organisation: Vespy\nProject: DINPanel"
+        );
+        assert_eq!(
+            format_reminder_context(None, None),
+            "Organisation: None\nProject: Inbox (unassigned)"
+        );
     }
 }

@@ -505,8 +505,8 @@ export default function App() {
       {composerOpen && <Composer workspace={workspace} defaultProjectId={activeProject?.id ?? null} clockFormat={settings.clockFormat} audioInputMode={settings.audioInputMode} tomorrowReminderTime={settings.tomorrowReminderTime} transcribingAudioIds={transcribingAudioIds} onAudioTranscribing={setAudioTranscribing} onTaskProcessing={setTaskProcessing} onClose={() => setComposerOpen(false)} onSubmit={createTask} onTaskUpdate={updateTask} onError={setError} />}
       {settingsOpen && <SettingsDialog settings={settings} onSettings={setSettings} onClose={() => { setSettingsOpen(false); if (!settings.welcomeCompleted) setWelcomeOpen(true); }} onError={setError} />}
       {welcomeOpen && <WelcomeDialog shortcut={settings.quickCaptureShortcut} settings={settings} onSettings={setSettings} onError={setError} onComplete={() => { void api.updateSettings({ ...settings, welcomeCompleted: true }).then((updated) => { setSettings(updated); setWelcomeOpen(false); }).catch((reason) => setError(String(reason))); }} />}
-      {remindersOpen && <ReminderCenter tasks={reminderTasks(tasks)} tomorrowReminderTime={settings.tomorrowReminderTime} onClose={() => setRemindersOpen(false)} onOpen={(task) => { openTask(task); setRemindersOpen(false); }} onDone={(task) => updateTask(task.id, { status: "done" })} onSnooze={(task, preset) => updateTask(task.id, { remindAt: reminderDate(preset, settings.tomorrowReminderTime).toISOString() })} onSnoozeAll={(items, preset) => Promise.all(items.map((task) => updateTask(task.id, { remindAt: reminderDate(preset, settings.tomorrowReminderTime).toISOString() }))).then(() => undefined)} />}
-      {stickyReminderOpen && dueReminders.length > 0 && <StickyReminder tasks={dueReminders} tomorrowReminderTime={settings.tomorrowReminderTime} onOpen={(task) => { openTask(task); void releaseStickyReminder(); }} onDone={(task) => updateTask(task.id, { status: "done" })} onSnooze={(task, preset) => updateTask(task.id, { remindAt: reminderDate(preset, settings.tomorrowReminderTime).toISOString() })} onSnoozeAll={(items, preset) => Promise.all(items.map((task) => updateTask(task.id, { remindAt: reminderDate(preset, settings.tomorrowReminderTime).toISOString() }))).then(() => undefined)} />}
+      {remindersOpen && <ReminderCenter tasks={reminderTasks(tasks)} workspace={workspace} tomorrowReminderTime={settings.tomorrowReminderTime} onClose={() => setRemindersOpen(false)} onOpen={(task) => { openTask(task); setRemindersOpen(false); }} onDone={(task) => updateTask(task.id, { status: "done" })} onSnooze={(task, preset) => updateTask(task.id, { remindAt: reminderDate(preset, settings.tomorrowReminderTime).toISOString() })} onSnoozeAll={(items, preset) => Promise.all(items.map((task) => updateTask(task.id, { remindAt: reminderDate(preset, settings.tomorrowReminderTime).toISOString() }))).then(() => undefined)} />}
+      {stickyReminderOpen && dueReminders.length > 0 && <StickyReminder tasks={dueReminders} workspace={workspace} tomorrowReminderTime={settings.tomorrowReminderTime} onOpen={(task) => { openTask(task); void releaseStickyReminder(); }} onDone={(task) => updateTask(task.id, { status: "done" })} onSnooze={(task, preset) => updateTask(task.id, { remindAt: reminderDate(preset, settings.tomorrowReminderTime).toISOString() })} onSnoozeAll={(items, preset) => Promise.all(items.map((task) => updateTask(task.id, { remindAt: reminderDate(preset, settings.tomorrowReminderTime).toISOString() }))).then(() => undefined)} />}
       {activeMeetingRecording && <MeetingRecordingBanner meeting={activeMeetingRecording} project={workspace.projects.find((project) => project.id === activeMeetingRecording.projectId) ?? null} onStop={stopMeetingRecording} />}
       {error && <div className="toast error-toast"><span>{error}</span><button onClick={() => setError(null)}><X size={16} /></button></div>}
       {undoCompletion && <div className="toast undo-toast"><span>Task completed</span><button onClick={() => void undoCompletedTask()}>Undo</button></div>}
@@ -1071,7 +1071,7 @@ function SettingsDialog({ settings, onSettings, onClose, onError }: { settings: 
   </div></div>;
 }
 
-function ReminderCenter({ tasks, tomorrowReminderTime, onClose, onOpen, onDone, onSnooze, onSnoozeAll }: { tasks: Task[]; tomorrowReminderTime: string; onClose: () => void; onOpen: (task: Task) => void; onDone: (task: Task) => Promise<void>; onSnooze: (task: Task, preset: ReminderPreset) => Promise<void>; onSnoozeAll: (tasks: Task[], preset: ReminderPreset) => Promise<void> }) {
+function ReminderCenter({ tasks, workspace, tomorrowReminderTime, onClose, onOpen, onDone, onSnooze, onSnoozeAll }: { tasks: Task[]; workspace: Workspace; tomorrowReminderTime: string; onClose: () => void; onOpen: (task: Task) => void; onDone: (task: Task) => Promise<void>; onSnooze: (task: Task, preset: ReminderPreset) => Promise<void>; onSnoozeAll: (tasks: Task[], preset: ReminderPreset) => Promise<void> }) {
   const [page, setPage] = useState(1);
   const pageCount = Math.max(1, Math.ceil(tasks.length / pageSize));
   const visibleTasks = tasks.slice((page - 1) * pageSize, page * pageSize);
@@ -1080,16 +1080,16 @@ function ReminderCenter({ tasks, tomorrowReminderTime, onClose, onOpen, onDone, 
     <div className="dialog-header"><div><p className="eyebrow">Threadbox</p><h2>Reminder center</h2></div><button className="icon-button" onClick={onClose}><X /></button></div>
     {tasks.length === 0 ? <div className="reminder-empty"><Bell size={28} /><h3>No scheduled tasks</h3><p>Tasks with a due date will appear here.</p></div> : <><SnoozeAll tasks={tasks} tomorrowReminderTime={tomorrowReminderTime} onSnoozeAll={onSnoozeAll} /><div className="reminder-list">{visibleTasks.map((task) => {
       const overdue = Boolean(task.dueAt && new Date(task.dueAt) <= new Date());
-      return <article className={`reminder-item ${overdue ? "overdue-item" : ""}`} key={task.id}><button className="reminder-title" onClick={() => onOpen(task)}><strong>{task.title}</strong><span>{formatDueDate(task.remindAt ?? task.dueAt)}</span></button><div className="reminder-actions"><ReminderPresetButtons compact tomorrowReminderTime={tomorrowReminderTime} onChoose={(preset) => void onSnooze(task, preset)} /><button className="done-reminder" onClick={() => void onDone(task)}>Done</button></div></article>;
+      return <article className={`reminder-item ${overdue ? "overdue-item" : ""}`} key={task.id}><button className="reminder-title" onClick={() => onOpen(task)}><span className="reminder-context">{reminderContextLabel(task, workspace)}</span><strong>{task.title}</strong><span>{formatDueDate(task.remindAt ?? task.dueAt)}</span></button><div className="reminder-actions"><ReminderPresetButtons compact tomorrowReminderTime={tomorrowReminderTime} onChoose={(preset) => void onSnooze(task, preset)} /><button className="done-reminder" onClick={() => void onDone(task)}>Done</button></div></article>;
     })}</div>{tasks.length > pageSize && <Pagination page={page} pageCount={pageCount} itemCount={tasks.length} onPage={setPage} />}</>}
   </section></div>;
 }
 
-function StickyReminder({ tasks, tomorrowReminderTime, onOpen, onDone, onSnooze, onSnoozeAll }: { tasks: Task[]; tomorrowReminderTime: string; onOpen: (task: Task) => void; onDone: (task: Task) => Promise<void>; onSnooze: (task: Task, preset: ReminderPreset) => Promise<void>; onSnoozeAll: (tasks: Task[], preset: ReminderPreset) => Promise<void> }) {
+function StickyReminder({ tasks, workspace, tomorrowReminderTime, onOpen, onDone, onSnooze, onSnoozeAll }: { tasks: Task[]; workspace: Workspace; tomorrowReminderTime: string; onOpen: (task: Task) => void; onDone: (task: Task) => Promise<void>; onSnooze: (task: Task, preset: ReminderPreset) => Promise<void>; onSnoozeAll: (tasks: Task[], preset: ReminderPreset) => Promise<void> }) {
   return <div className="modal-backdrop sticky-reminder-backdrop"><section className="reminder-center sticky-reminder" role="alertdialog" aria-modal="true" aria-label="Overdue Threadbox reminders">
     <div className="sticky-reminder-header"><Bell size={19} /><strong>{tasks.length === 1 ? "Threadbox reminder" : `${tasks.length} Threadbox reminders`}</strong></div>
     <div className="reminder-list">{tasks.slice(0, 5).map((task) => <article className="reminder-item overdue-item" key={task.id}>
-      <button className="reminder-title sticky-reminder-title" onClick={() => onOpen(task)}><strong>{task.title}</strong><span>{formatDueDate(task.remindAt ?? task.dueAt)}</span></button>
+      <button className="reminder-title sticky-reminder-title" onClick={() => onOpen(task)}><span className="reminder-context">{reminderContextLabel(task, workspace)}</span><strong>{task.title}</strong><span>{formatDueDate(task.remindAt ?? task.dueAt)}</span></button>
       <div className="sticky-task-actions"><button onClick={() => void onSnooze(task, "15m")}>Snooze 15 min</button><button onClick={() => onOpen(task)}>Open</button><button className="done-reminder" onClick={() => void onDone(task)}>Done</button></div>
     </article>)}{tasks.length > 5 && <p className="additional-reminders">{tasks.length - 5} more reminders will appear as you handle these.</p>}</div>
     <SnoozeAll tasks={tasks} tomorrowReminderTime={tomorrowReminderTime} onSnoozeAll={onSnoozeAll} />
@@ -1120,6 +1120,10 @@ function taskProjectLabel(task: Task, workspace: Workspace): string | null {
   if (!task.projectId) return null;
   const project = workspace.projects.find((item) => item.id === task.projectId);
   return project ? projectPath(project, workspace) : null;
+}
+
+export function reminderContextLabel(task: Task, workspace: Workspace): string {
+  return taskProjectLabel(task, workspace) ?? "No organisation / Inbox (unassigned)";
 }
 
 export function normalizeLink(value: string): string {
