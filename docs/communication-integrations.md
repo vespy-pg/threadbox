@@ -1,7 +1,7 @@
 # Communication integrations
 
-Status: feasibility and implementation boundary, verified against official provider documentation on
-2026-09-13. No external communication is executed yet.
+Status: feasibility and implementation boundary, updated on 2026-09-14. No external communication is
+executed yet. The active release scope is defined in `first-useful-release-plan.md`.
 
 ## Product boundary
 
@@ -25,9 +25,6 @@ The application must never turn a preview control into a real external side effe
 | Gmail | High | Google OAuth and Gmail API | Draft and send reviewed email from the connected account |
 | Slack messages | High | Slack app, OAuth and scoped bot token | Post to selected channels and direct-message conversations |
 | Slack calls | Partial | Slack Calls API only represents an external call in Slack | Attach a Threadbox or telephony call link, do not treat Slack as the media provider |
-| WhatsApp messages | Medium | WhatsApp Business Platform, business account, business number and Meta policy | Reviewed templates and messages for eligible business conversations |
-| WhatsApp calls | Medium to high complexity | WhatsApp Business Calling API and account eligibility | Research after messaging onboarding, not personal WhatsApp automation |
-| Facebook Messenger | Medium | Facebook Page, Page token, `pages_messaging` and conversation-window rules | Page conversations only, not a personal Messenger account |
 | Email beyond Gmail | High | Microsoft Graph or standard SMTP and IMAP per account type | Add after the Google flow proves the shared action model |
 | Telephone network | High | Cloud telephony, SIP provider, or a paired Android phone | Start with a user-confirmed Android dial action or a cloud-provider proof of concept |
 
@@ -38,8 +35,9 @@ Official references:
 - [Slack `chat.postMessage`](https://api.slack.com/methods/chat.postMessage)
 - [Slack Calls API](https://api.slack.com/apis/calls)
 - [Twilio Voice Call resource](https://www.twilio.com/docs/voice/api/call-resource)
-- [Meta Messenger Platform API collection](https://www.postman.com/meta/messenger-platform-api/documentation/iyp204x/messenger-platform-api)
-- [Meta WhatsApp developer hub](https://whatsappbusiness.com/developers/developer-hub/)
+
+WhatsApp and Facebook Messenger are parked. They are not part of the first useful release and should
+not add navigation, provider abstractions or approval complexity until the decision is revisited.
 
 ## Telephone integration choices
 
@@ -112,16 +110,14 @@ References: [Ollama OpenAI compatibility](https://docs.ollama.com/api/openai-com
 [Qwen 3 model sizes](https://ollama.com/library/qwen3), and
 [llama.cpp server](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md).
 
-## Recommended implementation order
+## Later communication implementation order
 
-1. Add the common communication action, approval and execution-attempt records without sending.
-2. Connect Google OAuth once, then implement Calendar import and Gmail draft/send with narrow scopes.
-3. Add the outbox UI and make every external action require explicit approval.
-4. Add Slack messaging against the same outbox contract.
-5. Build a paired Android `ACTION_DIAL` proof of concept for calls from the user's handset.
-6. Add cloud telephony only when automated calling is required.
-7. Add WhatsApp Business and Facebook Page messaging after the Meta business identities are known.
-8. Add the optional inbound webhook bridge when polling is no longer sufficient.
+1. Deliver the mail and calendar foundation in `first-useful-release-plan.md`.
+2. Add Slack messaging against the shared external-action contract.
+3. Build a paired Android click-to-call proof of concept for calls from the user's handset.
+4. Add cloud telephony when automated calling becomes the active milestone.
+5. Add the optional inbound webhook bridge when polling is no longer sufficient.
 
 The local model setup is independent and can proceed alongside these integrations after the NVIDIA
-driver is operational.
+driver is operational. A user-owned VPS and automated deployment belong to a later Threadbox Node
+milestone.

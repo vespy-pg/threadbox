@@ -1,5 +1,9 @@
 # Meeting agent plan
 
+The local-only first stage described here has shipped as the meeting foundation. The next release
+adds optional cloud speech-to-text and Windows support without changing the recording, transcript or
+analysis contracts, as defined in `first-useful-release-plan.md`.
+
 Status: Stage 1 implemented. Meetings, two-track recording, persisted transcription, derived analysis
 and project vocabulary management form the complete local loop. Read together with
 `privacy-and-sync-model.md`, which defines the
@@ -141,12 +145,11 @@ that recording a cellular telephone call is blocked by the platform and no appro
 
 macOS is included in the table because Tauri makes it nearly free, not because it has been requested.
 
-## Open decisions
+## Remaining decisions
 
-- **Local model or external provider for the first version of analysis.** An external provider gives
-  a working feature sooner and shows whether the output is worth having; a local model from the start
-  avoids discovering late that the private tier is too weak to sell. With the provider interface
-  above, this is a question of order rather than a permanent choice.
+- **Cloud speech provider breadth.** The first useful release includes local and cloud transcription.
+  The first cloud adapter is OpenAI; a second provider is added only if real recordings show a material
+  quality, language, cost or availability gap.
 - **Which model performs analysis at the device-only level**, and whether a 6 GB consumer GPU
   running a quantised model of around eight billion parameters produces action items good enough to
   act on. This needs measuring on real meetings, not estimating.

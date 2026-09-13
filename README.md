@@ -5,7 +5,7 @@
 
 Threadbox is a local-first work and meeting assistant organised around organisations and projects. Capture a Slack message, email, WhatsApp message, screenshot, voice note, thought or meeting, then keep the original context beside the resulting work.
 
-Release 1 targets Linux and Firefox. The architecture keeps the desktop core, browser integration, and website adapters separate so Windows, macOS, and Chromium browsers can be added without rewriting the product.
+The first useful release targets Linux and Windows from one Tauri codebase. Linux is currently the only packaged and exercised build; the Windows platform adapters and release pipeline are planned in `docs/first-useful-release-plan.md`.
 
 Linux release packages are built on Ubuntu 22.04 to remain compatible with Ubuntu 22.04 and newer distributions.
 

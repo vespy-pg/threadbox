@@ -2,7 +2,7 @@
 
 The desktop meeting agent, built in order. Each step is expected to leave the application working.
 
-## Scope of this phase
+## Scope of the completed foundation phase
 
 Desktop computers only. The user's own machine is the server: it records, stores, transcribes and
 analyses. No synchronisation, no separate server, no hosted service, no mobile client, no live view.
@@ -11,6 +11,10 @@ Those are not abandoned, and `privacy-and-sync-model.md` states the properties t
 reachable. Nothing in this phase may make them harder: identifiers stay stable, media stay
 content-addressed and relatively referenced, and recognition and analysis stay behind provider
 interfaces.
+
+The next active product milestone is defined in `first-useful-release-plan.md`. It adds cloud
+speech-to-text, calendar and mail integrations, common availability search and Windows support. The
+user-owned VPS remains deferred.
 
 ## Steps
 

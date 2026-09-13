@@ -28,7 +28,7 @@ placement questions, and every privacy level is a named combination of their ans
 
 A third question is independent of both and must never be folded into them:
 
-3. **May content be sent to an external language-model provider?**
+3. **May content be sent to an external speech or language-model provider?**
 
 The reason for keeping the third separate is that it does not follow from the first two. A user who
 keeps everything on one laptop may still want the best available model for a difficult meeting. A
@@ -111,7 +111,7 @@ user's hardware, and the foundation for later team features.
 additionally, the operator's infrastructure holds conversations that involve people who are not
 users of the product.
 
-## The external language model axis
+## The external model axis
 
 Independent of the level above, with three settings:
 
@@ -124,12 +124,14 @@ Independent of the level above, with three settings:
 - **External model, always.** Convenient, and an informed choice for users whose meetings are not
   confidential.
 
-Speech recognition is deliberately not on this axis. Local speech recognition is good enough on any
-computer, so sending audio to a third party for transcription buys nothing on a computer and is only
-considered when the recording device is a phone operating at level 3 or 4b.
+Speech recognition is also on this axis for the first useful release. Local transcription remains the
+default, while cloud transcription is an explicit per-recording choice for users who value speed or
+quality. The interface must disclose that the selected audio, rather than only its transcript, leaves
+the device. A local failure never changes that choice automatically. A user-owned VPS provider is
+deferred until after the first release.
 
-Whatever the setting, a request to an external model must record which provider, which model and
-which prompt version produced a note, so that a user can later tell what was sent where.
+Whatever the setting, an external request must record which provider and model processed it, what
+kind of source was sent and when. Language-model notes also record their prompt version.
 
 ## Invariants that hold at every level
 

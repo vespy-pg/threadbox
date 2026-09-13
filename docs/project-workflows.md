@@ -26,7 +26,8 @@ project work.
 4. **Document or evidence.** Add a note, link, file, recording or other source that explains a decision
    or constrains an action. The same material can support several later actions without duplication.
 5. **Outbound message.** Communicate information, an instruction, request, question, clarification or
-   decision confirmation through email, WhatsApp, Slack, Facebook or a later channel.
+   decision confirmation through email, Slack or a later channel. WhatsApp and Facebook Messenger are
+   parked and do not shape the first useful release.
 6. **Call.** Prepare a purpose and brief, select a person and channel, place the call, optionally retain
    the recording or transcript, and capture the result and follow-up work.
 7. **Automated follow-up.** Trigger a reviewed sequence such as send a request, wait for a response,

@@ -5,6 +5,8 @@ describes shipped behaviour unless it says so.
 
 - `implementation-plan.md` - the ordered build plan for the desktop meeting agent, and what is
   deliberately out of scope for now.
+- `first-useful-release-plan.md` - the approved MVP scope and ordered implementation plan for local
+  and cloud transcription, calendar, mail and Windows support.
 - `information-architecture.md` - the organisation-first application shell and the stable homes for
   current and future work modules.
 - `project-workflows.md` - project scenarios for notes, delegation, meetings, messages, calls and

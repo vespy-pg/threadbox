@@ -16,7 +16,8 @@ An organisation is the highest visible work context. Its stable surfaces are:
 - **Overview** - urgent work and meaningful signals aggregated from its projects.
 - **People** - employees, collaborators and clients associated with the organisation.
 - **Projects** - the project directory and project configuration.
-- **Integrations** - connections to external systems, starting with Google Calendar.
+- **Integrations** - organisation-owned account connections and separately granted capabilities,
+  starting with Google Calendar and email.
 
 A project is selected within an organisation. Its stable surfaces are:
 
@@ -38,14 +39,15 @@ future domains; the shell must accommodate them without another navigation redes
 
 The selected project's modules are nested directly beneath it in the sidebar. A persistent context bar
 shows the clickable organisation, project ancestry and current module, with a hierarchical Back action.
-Provider names such as WhatsApp or Slack belong inside Communication and organisation Integrations,
-not as permanent project navigation items.
+Provider names such as Gmail, generic email or Slack belong inside Communication and organisation
+Integrations, not as permanent project navigation items.
 
 ## Calendar boundary
 
-Threadbox does not become a calendar provider. Google Calendar is the first integration and supplies
-the schedule. Threadbox owns what happens around an event: project context, capture, transcription,
-analysis, decisions and resulting work.
+Threadbox does not become a calendar or full email client. Google Calendar supplies schedules and
+availability, while Gmail, Microsoft Graph and IMAP/SMTP supply selected project communication.
+Threadbox owns what happens around those external records: project context, meetings, transcription,
+analysis, decisions, reviewed replies and resulting work.
 
 ## Progressive implementation
 

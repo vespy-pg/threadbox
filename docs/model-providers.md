@@ -8,8 +8,9 @@ lifecycle. See the Status section at the end.
 Two independent choices, each changeable at any time without losing data, and each presented once
 during first run because neither has a default that suits everyone:
 
-1. **Speech recognition.** Local only, in the first desktop release. Choice of model size and of
-   language behaviour.
+1. **Speech recognition.** Local or cloud in the first useful desktop release. Choice of provider,
+   model size and language behaviour. A user selects where each recording is transcribed before any
+   audio leaves the device.
 2. **Language model for analysis.** Local model, an external provider reached with the user's own API
    key, or an agent command line tool the user has already installed and authorised.
 
@@ -23,23 +24,24 @@ not make earlier output unexplainable.
 
 ## Speech recognition
 
-Local recognition through whisper.cpp, which Threadbox already uses in `src-tauri/src/speech.rs`. Two
-changes are needed for meetings.
+Local recognition through whisper.cpp, which Threadbox already uses in `src-tauri/src/speech.rs`,
+remains the privacy-first default. Cloud recognition is added behind the same speech provider
+contract for users who prefer speed or quality over device-only processing.
 
-**Language must stop being fixed.** The current call sets Polish unconditionally. Meetings need
-per-project language configuration, automatic detection for unknown material, and the ability to state
-that a meeting is in one language while its terminology is in another, which is the normal case for
-technical work in Polish. `whisper-rs` exposes detection through `FullParams::set_detect_language`,
-verified in 0.14.4 at `src/whisper_params.rs:289`.
+**Language is configurable.** Meetings support per-project language configuration, automatic
+detection for unknown material, and a terminology language that can differ from the spoken language,
+which is common in technical work. `whisper-rs` exposes detection through
+`FullParams::set_detect_language`, verified in 0.14.4 at `src/whisper_params.rs:289`.
 
-**Model size must be a choice.** The bundled `ggml-small.bin` is adequate for a dictated task title and
-not for an hour of several speakers. Larger models are markedly better and markedly slower, and the
-right trade-off depends on hardware the application cannot assume. Offer a small, medium and large
-option with an honest statement of speed on the current machine, and keep the small model as the
-default for voice notes so the existing feature does not slow down.
+**Model size is a choice.** The bundled `ggml-small.bin` is adequate for a dictated task title and not
+for an hour of several speakers. Larger models are markedly better and markedly slower, and the right
+trade-off depends on hardware the application cannot assume. Threadbox offers small, medium and large
+options and keeps the small model as the voice-note default so the existing feature does not slow down.
 
-Sending audio to a hosted recognition service is not offered on the desktop. Local recognition is good
-enough there, and the privacy cost buys nothing.
+**Cloud recognition must be explicit per job.** The first adapter uses an official hosted
+transcription API. Before upload, Threadbox shows the provider and recording, stores the key in the
+operating system keyring and records provider and model provenance. A local failure never silently
+causes a cloud upload. Live streaming remains outside the first useful release.
 
 ## Language model: what is offered
 
@@ -175,5 +177,6 @@ Implemented:
 
 Still not implemented:
 
+- Cloud speech-to-text and per-job local or cloud selection.
 - Official provider sign-in has no implementation, because the survey above found no published flow a
   third-party application may use for inference. The provider list is the place to add one.
