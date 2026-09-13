@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight, BookOpen, BriefcaseBusiness, CalendarDays, Check
 
 import { api } from "./api";
 import { ProjectDetail, projectPath, type Workspace } from "./projects";
-import type { LanguageModelStatus, Meeting, MeetingAnalysis, MeetingTranscript, Organization, OrganizationMember, Person, ProcessingJob, Project, SpeechCloudStatus, SpeechProvider, Task, TranscriptSegment, VocabularyCandidate, VocabularySet, VocabularyTerm } from "./types";
+import type { AppSettings, AvailableSlot, CalendarEventDraft, ExternalCalendar, ExternalCalendarEvent, FindTimeInput, IntegrationCapabilityId, IntegrationSnapshot, LanguageModelStatus, Meeting, MeetingAnalysis, MeetingTranscript, Organization, OrganizationMember, Person, ProcessingJob, Project, SpeechCloudStatus, SpeechProvider, Task, TranscriptSegment, VocabularyCandidate, VocabularySet, VocabularyTerm } from "./types";
 
 export type WorkbenchArea = "organization-overview" | "projects" | "people" | "integrations" | "project-overview" | "threads" | "meetings" | "documents" | "communication" | "vocabulary";
 
@@ -228,8 +228,141 @@ export function MeetingsWorkspace({ project, organization, workspace, activeReco
 
   return <WorkspacePage eyebrow={`${organization.name} / ${project.name}`} title="Meetings" description="Plan, capture and review the conversations that create work." action={<button className="primary-button" onClick={() => setCreating(true)}><Plus size={16} />New meeting</button>}>
     {creating && <section className="meeting-create-card"><div className="meeting-create-fields"><label><span>Meeting title</span><input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Weekly project sync" /></label><label><span>Scheduled start</span><input type="datetime-local" value={scheduledStart} onChange={(event) => setScheduledStart(event.target.value)} /></label></div><p><Mic size={14} />Recording captures your microphone on the left channel and the system audio on the right. Ctrl/Cmd+Shift+M starts immediately in the current project.</p><div className="inline-create-actions"><button className="text-button" onClick={() => setCreating(false)}>Cancel</button><button className="secondary-button" disabled={!title.trim() || busyId === "new"} onClick={() => void create(false)}>Save for later</button><button className="primary-button recording-action" disabled={!title.trim() || busyId === "new" || Boolean(activeRecording)} onClick={() => void create(true)}><Mic size={15} />Save and record</button></div></section>}
+    <ProjectCalendarPanel organization={organization} project={project} onImported={load} onIntegrations={onIntegrations} onError={onError} />
     <div className="meeting-list">{meetings.map((meeting) => <article key={meeting.id} className={`meeting-card ${meeting.status === "recording" ? "recording" : ""}`}><div className={`meeting-status-icon ${meeting.status}`} >{meeting.status === "recording" ? <Mic size={18} /> : meeting.status === "recorded" ? <CheckCircle2 size={18} /> : <CalendarDays size={18} />}</div><div className="meeting-card-main"><div className="meeting-card-heading"><input aria-label="Meeting title" defaultValue={meeting.title} onBlur={(event) => { const next = event.target.value.trim(); if (next && next !== meeting.title) void update(meeting, { title: next }); }} /><span className={`status-pill ${meeting.status}`}>{meeting.status}</span></div><div className="meeting-meta"><span><Clock3 size={13} />{formatMeetingDate(meeting.scheduledStart ?? meeting.startedAt ?? meeting.createdAt)}</span>{meeting.durationSeconds !== null && <span>{formatMeetingDuration(meeting.durationSeconds)}</span>}<label><span>Project</span><select value={meeting.projectId ?? ""} disabled={busyId === meeting.id} onChange={(event) => void update(meeting, { projectId: event.target.value || null })}><option value="">Unassigned</option>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div><p className="meeting-track-note">{meeting.recordingPath ? "Stereo source saved: microphone left, system audio right." : meeting.status === "recording" ? "Both audio tracks are being captured now." : "Ready for two-track recording."}</p>{expandedTranscriptId === meeting.id && <MeetingTranscriptPanel meeting={meeting} onTasksChanged={onTasksChanged} onError={onError} />}</div><div className="meeting-actions">{meeting.status === "planned" && <button className="primary-button recording-action" disabled={Boolean(activeRecording) || busyId === meeting.id} onClick={() => void start(meeting)}><Mic size={15} />Record</button>}{meeting.status === "recording" && activeRecording?.id === meeting.id && <button className="stop-meeting-button" onClick={() => void onStop()}><Square size={14} />Stop</button>}{meeting.recordingPath && <button className="secondary-button" onClick={() => void api.playRecording(meeting.recordingPath!).catch((reason) => onError(String(reason)))}><Play size={14} />Play</button>}{meeting.recordingPath && <button className="secondary-button" onClick={() => setExpandedTranscriptId((current) => current === meeting.id ? null : meeting.id)}><FileText size={14} />Transcript</button>}<button className="icon-button danger" aria-label="Delete meeting" disabled={meeting.status === "recording" || busyId === meeting.id} onClick={() => void remove(meeting)}><Trash2 size={16} /></button></div></article>)}{meetings.length === 0 && !creating && <section className="empty-module compact"><div className="module-icon"><CalendarDays size={25} /></div><h2>No meetings in this project</h2><p>Create one now or connect Google Calendar when the integration becomes available.</p><button className="secondary-button" onClick={onIntegrations}><Plug size={15} />Open integrations</button></section>}</div>
   </WorkspacePage>;
+}
+
+function ProjectCalendarPanel({ organization, project, onImported, onIntegrations, onError }: { organization: Organization; project: Project; onImported: () => Promise<void>; onIntegrations: () => void; onError: (message: string) => void }) {
+  const [connections, setConnections] = useState<IntegrationSnapshot[]>([]);
+  const [connectionId, setConnectionId] = useState("");
+  const [calendars, setCalendars] = useState<ExternalCalendar[]>([]);
+  const [calendarId, setCalendarId] = useState("");
+  const [events, setEvents] = useState<ExternalCalendarEvent[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<"events" | "create" | "availability">("events");
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Warsaw";
+  const [eventTitle, setEventTitle] = useState("");
+  const [eventStart, setEventStart] = useState("");
+  const [eventEnd, setEventEnd] = useState("");
+  const [attendees, setAttendees] = useState("");
+  const [preview, setPreview] = useState<CalendarEventDraft | null>(null);
+  const [availabilityCalendars, setAvailabilityCalendars] = useState("");
+  const [rangeStart, setRangeStart] = useState("");
+  const [rangeEnd, setRangeEnd] = useState("");
+  const [duration, setDuration] = useState(30);
+  const [slots, setSlots] = useState<AvailableSlot[]>([]);
+
+  const selectedConnection = connections.find((item) => item.connection.id === connectionId) ?? null;
+  const hasCapability = (id: IntegrationCapabilityId) => selectedConnection?.capabilities.some((item) => item.capability === id && item.status === "granted") ?? false;
+
+  const loadEvents = useCallback(async (nextConnectionId: string, nextCalendarId: string) => {
+    if (!nextConnectionId || !nextCalendarId) return;
+    const start = new Date();
+    const end = new Date(start.getTime() + 30 * 24 * 60 * 60_000);
+    setEvents(await api.listGoogleCalendarEvents(nextConnectionId, nextCalendarId, start.toISOString(), end.toISOString()));
+  }, []);
+
+  const load = useCallback(async () => {
+    try {
+      const nextConnections = (await api.listIntegrationConnections(organization.id)).filter((item) => item.connection.provider === "google");
+      setConnections(nextConnections);
+      const nextConnection = nextConnections.find((item) => item.connection.id === connectionId) ?? nextConnections[0];
+      if (!nextConnection) return;
+      setConnectionId(nextConnection.connection.id);
+      const canRead = nextConnection.capabilities.some((item) => item.capability === "calendar_read" && item.status === "granted");
+      if (!canRead) {
+        setCalendarId("primary");
+        setAvailabilityCalendars((current) => current || "primary");
+        return;
+      }
+      const nextCalendars = await api.listGoogleCalendars(nextConnection.connection.id);
+      setCalendars(nextCalendars);
+      const nextCalendar = nextCalendars.find((item) => item.id === calendarId) ?? nextCalendars.find((item) => item.primary) ?? nextCalendars[0];
+      if (nextCalendar) {
+        setCalendarId(nextCalendar.id);
+        setAvailabilityCalendars((current) => current || nextCalendar.id);
+        await loadEvents(nextConnection.connection.id, nextCalendar.id);
+      }
+    } catch (reason) { onError(String(reason)); }
+  }, [calendarId, connectionId, loadEvents, onError, organization.id]);
+
+  useEffect(() => { void load(); }, [organization.id]);
+
+  async function chooseCalendar(nextCalendarId: string) {
+    setCalendarId(nextCalendarId);
+    try { setBusy(true); await loadEvents(connectionId, nextCalendarId); }
+    catch (reason) { onError(String(reason)); }
+    finally { setBusy(false); }
+  }
+
+  async function chooseConnection(nextConnectionId: string) {
+    setConnectionId(nextConnectionId);
+    setEvents([]);
+    setCalendars([]);
+    const nextConnection = connections.find((item) => item.connection.id === nextConnectionId);
+    if (!nextConnection?.capabilities.some((item) => item.capability === "calendar_read" && item.status === "granted")) {
+      setCalendarId("primary");
+      setAvailabilityCalendars("primary");
+      return;
+    }
+    try {
+      setBusy(true);
+      const nextCalendars = await api.listGoogleCalendars(nextConnectionId);
+      setCalendars(nextCalendars);
+      const nextCalendar = nextCalendars.find((item) => item.primary) ?? nextCalendars[0];
+      if (nextCalendar) {
+        setCalendarId(nextCalendar.id);
+        setAvailabilityCalendars(nextCalendar.id);
+        await loadEvents(nextConnectionId, nextCalendar.id);
+      }
+    } catch (reason) { onError(String(reason)); }
+    finally { setBusy(false); }
+  }
+
+  async function importEvent(event: ExternalCalendarEvent) {
+    try { setBusy(true); await api.importGoogleCalendarEvent(connectionId, project.id, event); await onImported(); }
+    catch (reason) { onError(String(reason)); }
+    finally { setBusy(false); }
+  }
+
+  function prepareEvent() {
+    if (!eventTitle.trim() || !eventStart || !eventEnd || !calendarId) return;
+    setPreview({ organizationId: organization.id, projectId: project.id, connectionId, calendarId, summary: eventTitle.trim(), description: `Created from Threadbox project ${project.name}.`, start: new Date(eventStart).toISOString(), end: new Date(eventEnd).toISOString(), timeZone: timezone, attendees: attendees.split(",").map((item) => item.trim()).filter(Boolean), addGoogleMeet: true });
+  }
+
+  async function createEvent() {
+    if (!preview) return;
+    try { setBusy(true); await api.createGoogleCalendarEvent(preview); setPreview(null); setEventTitle(""); setEventStart(""); setEventEnd(""); setAttendees(""); await loadEvents(connectionId, calendarId); }
+    catch (reason) { onError(String(reason)); }
+    finally { setBusy(false); }
+  }
+
+  async function findTime() {
+    if (!rangeStart || !rangeEnd) return;
+    const input: FindTimeInput = { connectionId, calendarIds: availabilityCalendars.split(",").map((item) => item.trim()).filter(Boolean), timeMin: new Date(rangeStart).toISOString(), timeMax: new Date(rangeEnd).toISOString(), durationMinutes: duration, bufferMinutes: 0, timeZone: timezone, workdayStart: "09:00", workdayEnd: "17:00" };
+    try { setBusy(true); setSlots(await api.findGoogleCalendarTime(input)); }
+    catch (reason) { onError(String(reason)); }
+    finally { setBusy(false); }
+  }
+
+  if (connections.length === 0) return <section className="calendar-project-panel empty"><CalendarDays size={18} /><div><strong>Google Calendar is not connected</strong><small>Connect it for this organisation to import meetings, create reviewed events and find common time.</small></div><button className="secondary-button" onClick={onIntegrations}>Open integrations</button></section>;
+  return <section className="calendar-project-panel"><header><div><strong>Google Calendar</strong><small>{selectedConnection?.connection.accountIdentifier}</small></div><select value={connectionId} disabled={busy} onChange={(event) => void chooseConnection(event.target.value)}>{connections.map((item) => <option key={item.connection.id} value={item.connection.id}>{item.connection.accountIdentifier}</option>)}</select></header><nav><button className={mode === "events" ? "active" : ""} onClick={() => setMode("events")}>Upcoming</button><button className={mode === "create" ? "active" : ""} disabled={!hasCapability("calendar_write")} onClick={() => setMode("create")}>Create event</button><button className={mode === "availability" ? "active" : ""} disabled={!hasCapability("calendar_free_busy")} onClick={() => setMode("availability")}>Find a time</button></nav>
+    {mode === "events" && (hasCapability("calendar_read") ? <><label className="calendar-picker"><span>Calendar</span><select value={calendarId} disabled={busy} onChange={(event) => void chooseCalendar(event.target.value)}>{calendars.map((calendar) => <option key={calendar.id} value={calendar.id}>{calendar.summary}{calendar.primary ? " - primary" : ""}</option>)}</select></label><div className="external-event-list">{events.map((event) => <article key={`${event.calendarId}:${event.id}`}><div><strong>{event.summary}</strong><small>{event.allDay ? event.start : formatMeetingDate(event.start)}{event.attendees.length ? ` - ${event.attendees.length} attendees` : ""}</small></div><button className="secondary-button" disabled={busy} onClick={() => void importEvent(event)}>Add to project</button></article>)}{events.length === 0 && <p>No events in the next 30 days.</p>}</div></> : <PermissionPrompt text="Grant Read calendar to list and import events." onIntegrations={onIntegrations} />)}
+    {mode === "create" && !preview && <div className="calendar-form"><label><span>Title</span><input value={eventTitle} onChange={(event) => setEventTitle(event.target.value)} /></label><div><label><span>Start</span><input type="datetime-local" value={eventStart} onChange={(event) => setEventStart(event.target.value)} /></label><label><span>End</span><input type="datetime-local" value={eventEnd} onChange={(event) => setEventEnd(event.target.value)} /></label></div><label><span>Attendees</span><input value={attendees} onChange={(event) => setAttendees(event.target.value)} placeholder="alex@example.com, sam@example.com" /></label><button className="primary-button" disabled={!eventTitle.trim() || !eventStart || !eventEnd || !calendarId} onClick={prepareEvent}>Review event</button></div>}
+    {mode === "create" && preview && <div className="calendar-preview"><p className="eyebrow">Exact action preview</p><strong>{preview.summary}</strong><span>{formatMeetingDate(preview.start)} - {formatMeetingDate(preview.end)}</span><span>{preview.attendees.length ? preview.attendees.join(", ") : "No attendees"}</span><span>Google Meet link requested</span><div><button className="text-button" disabled={busy} onClick={() => setPreview(null)}>Edit</button><button className="primary-button" disabled={busy} onClick={() => void createEvent()}>{busy ? "Creating..." : "Approve and create"}</button></div></div>}
+    {mode === "availability" && <div className="calendar-form"><label><span>Calendars or people</span><input value={availabilityCalendars} onChange={(event) => setAvailabilityCalendars(event.target.value)} placeholder="primary, colleague@example.com" /></label><div><label><span>Range start</span><input type="datetime-local" value={rangeStart} onChange={(event) => setRangeStart(event.target.value)} /></label><label><span>Range end</span><input type="datetime-local" value={rangeEnd} onChange={(event) => setRangeEnd(event.target.value)} /></label><label><span>Minutes</span><input type="number" min="5" max="480" value={duration} onChange={(event) => setDuration(Number(event.target.value))} /></label></div><button className="primary-button" disabled={busy || !availabilityCalendars.trim() || !rangeStart || !rangeEnd} onClick={() => void findTime()}>{busy ? "Checking..." : "Find common time"}</button><div className="available-slots">{slots.slice(0, 20).map((slot) => <button key={slot.start} onClick={() => { setEventStart(toDateTimeLocalValue(slot.start)); setEventEnd(toDateTimeLocalValue(slot.end)); setMode("create"); }}>{formatMeetingDate(slot.start)} - {new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date(slot.end))}</button>)}</div></div>}
+  </section>;
+}
+
+function PermissionPrompt({ text, onIntegrations }: { text: string; onIntegrations: () => void }) {
+  return <div className="permission-prompt"><span>{text}</span><button className="secondary-button" onClick={onIntegrations}>Manage permissions</button></div>;
+}
+
+function toDateTimeLocalValue(value: string): string {
+  const date = new Date(value);
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
 
 export function MeetingRecordingBanner({ meeting, project, onStop }: { meeting: Meeting; project: Project | null; onStop: () => Promise<void> }) {
@@ -446,16 +579,72 @@ function formatMeetingDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
-export function IntegrationsWorkspace({ organization }: { organization: Organization }) {
+export function IntegrationsWorkspace({ organization, onError }: { organization: Organization; onError: (message: string) => void }) {
+  const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [clientId, setClientId] = useState("");
+  const [connections, setConnections] = useState<IntegrationSnapshot[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    try {
+      const [nextSettings, nextConnections] = await Promise.all([api.getSettings(), api.listIntegrationConnections(organization.id)]);
+      setSettings(nextSettings);
+      setClientId(nextSettings.googleOauthClientId);
+      setConnections(nextConnections);
+    } catch (reason) { onError(String(reason)); }
+  }, [onError, organization.id]);
+  useEffect(() => { void load(); }, [load]);
+  async function saveClientId() {
+    if (!settings) return;
+    try { setBusy("client-id"); setSettings(await api.updateSettings({ ...settings, googleOauthClientId: clientId.trim() })); }
+    catch (reason) { onError(String(reason)); }
+    finally { setBusy(null); }
+  }
+  async function connect(connectionId?: string) {
+    try { setBusy(connectionId ?? "connect"); await api.connectGoogle(organization.id, connectionId); await load(); }
+    catch (reason) { onError(String(reason)); }
+    finally { setBusy(null); }
+  }
+  async function changeCapability(connectionId: string, capability: IntegrationCapabilityId, granted: boolean) {
+    try {
+      setBusy(`${connectionId}:${capability}`);
+      if (granted) await api.grantGoogleCapability(connectionId, capability);
+      else await api.revokeGoogleCapability(connectionId, capability);
+      await load();
+    } catch (reason) { onError(String(reason)); }
+    finally { setBusy(null); }
+  }
+  async function disconnect(connectionId: string) {
+    if (!window.confirm("Disconnect this Google account and delete its stored token? Imported meetings remain in Threadbox.")) return;
+    try { setBusy(connectionId); await api.disconnectGoogle(connectionId); await load(); }
+    catch (reason) { onError(String(reason)); }
+    finally { setBusy(null); }
+  }
   const integrations = [
-    { name: "Google Calendar", kind: "Calendar", text: "Use existing events as the meeting schedule instead of creating a second calendar.", icon: CalendarDays, status: "Next" },
     { name: "Email", kind: "Messages", text: "Send reviewed updates, requests and instructions, then retain delivery and replies.", icon: Mail, status: "Preview" },
-    { name: "WhatsApp", kind: "Messages and calls", text: "Message or call project contacts from the same communication workflow.", icon: MessageSquareText, status: "Preview" },
     { name: "Slack", kind: "Workspace", text: "Send messages, ask questions and bring replies back into the project context.", icon: MessageSquareText, status: "Preview" },
     { name: "Phone", kind: "Calls", text: "Place a reviewed call from a prepared brief and retain its result or recording.", icon: Phone, status: "Research" },
-    { name: "Facebook", kind: "Messages", text: "Support approved outbound messages without mixing social identities into project data.", icon: Send, status: "Research" },
   ];
-  return <WorkspacePage eyebrow="Organisation" title="Integrations" description={`Connections available to ${organization.name}. Each integration must clearly state what it reads, sends and retains.`}><div className="integration-grid">{integrations.map(({ name, kind, text, icon: Icon, status }) => <section className="integration-card" key={name}><div className="integration-logo"><Icon size={21} /></div><div><p className="eyebrow">{kind}</p><h2>{name}</h2><p>{text}</p></div><span className={`status-pill ${status === "Next" ? "planned" : ""}`}>{status}</span></section>)}</div></WorkspacePage>;
+  return <WorkspacePage eyebrow="Organisation" title="Integrations" description={`Connections available to ${organization.name}. Each integration clearly states what it reads, creates and retains.`}>
+    <section className="surface-card google-integration"><div className="surface-card-heading"><div><p className="eyebrow">Calendar</p><h2>Google Calendar</h2><p>Connect an account first, then enable only the calendar outcomes you need.</p></div><span className="status-pill ready">Available</span></div>
+      <details className="oauth-client-settings" open={!settings?.googleOauthClientId}><summary>Google app configuration</summary><p>Development builds need a Desktop app OAuth client ID. Release builds will include the verified Threadbox client ID, so end users will not configure this.</p><div><input value={clientId} onChange={(event) => setClientId(event.target.value)} placeholder="123456.apps.googleusercontent.com" /><button className="secondary-button" disabled={!settings || !clientId.trim() || busy === "client-id"} onClick={() => void saveClientId()}>Save client ID</button></div></details>
+      <div className="google-connections">{connections.filter((item) => item.connection.provider === "google").map((snapshot) => <GoogleConnectionCard key={snapshot.connection.id} snapshot={snapshot} busy={busy} onReconnect={() => void connect(snapshot.connection.id)} onCapability={(capability, granted) => void changeCapability(snapshot.connection.id, capability, granted)} onDisconnect={() => void disconnect(snapshot.connection.id)} />)}
+        <button className="secondary-button google-connect" disabled={!settings?.googleOauthClientId || busy !== null} onClick={() => void connect()}><Plus size={15} />{busy === "connect" ? "Finish in browser..." : "Connect Google account"}</button>
+      </div>
+      <p className="integration-permission-note">Google desktop apps do not support incremental authorization. Adding a capability reopens Google consent for the complete set currently enabled in Threadbox. Revoking a capability blocks it locally; disconnecting deletes the token.</p>
+    </section>
+    <div className="integration-grid">{integrations.map(({ name, kind, text, icon: Icon, status }) => <section className="integration-card" key={name}><div className="integration-logo"><Icon size={21} /></div><div><p className="eyebrow">{kind}</p><h2>{name}</h2><p>{text}</p></div><span className="status-pill">{status}</span></section>)}</div>
+  </WorkspacePage>;
+}
+
+const googleCapabilities: Array<{ id: IntegrationCapabilityId; title: string; text: string }> = [
+  { id: "calendar_read", title: "Read calendar", text: "List calendars and read selected event details." },
+  { id: "calendar_write", title: "Create calendar events", text: "Create reviewed events. Google's scope also technically permits viewing and editing events." },
+  { id: "calendar_free_busy", title: "Check availability", text: "Read busy intervals without importing event titles or descriptions." },
+];
+
+function GoogleConnectionCard({ snapshot, busy, onReconnect, onCapability, onDisconnect }: { snapshot: IntegrationSnapshot; busy: string | null; onReconnect: () => void; onCapability: (capability: IntegrationCapabilityId, granted: boolean) => void; onDisconnect: () => void }) {
+  const granted = (capability: IntegrationCapabilityId) => snapshot.capabilities.some((item) => item.capability === capability && item.status === "granted");
+  return <article className="google-account-card"><header><div><strong>{snapshot.connection.displayName}</strong><small>{snapshot.connection.accountIdentifier}</small></div><span className="model-ready"><CheckCircle2 size={14} />Connected</span></header><div className="capability-list">{googleCapabilities.map((capability) => <div key={capability.id}><span><strong>{capability.title}</strong><small>{capability.text}</small></span><button className={granted(capability.id) ? "text-button danger" : "secondary-button"} disabled={busy !== null} onClick={() => onCapability(capability.id, !granted(capability.id))}>{busy === `${snapshot.connection.id}:${capability.id}` ? "Finish in browser..." : granted(capability.id) ? "Revoke" : "Grant"}</button></div>)}</div><footer><button className="text-button" disabled={busy !== null} onClick={onReconnect}>Repair access</button><button className="text-button danger" disabled={busy !== null} onClick={onDisconnect}>Disconnect</button></footer></article>;
 }
 
 export function DocumentsWorkspace({ project, workspace, onReload, onError }: { project: Project; workspace: Workspace; onReload: () => Promise<void>; onError: (message: string) => void }) {

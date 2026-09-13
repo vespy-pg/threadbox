@@ -19,6 +19,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
 cpal = { version = "0.18", default-features = false }
 directories = "5"
 hound = "3.5"
@@ -39,6 +40,7 @@ tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
 thiserror = "2"
 url = "2"
+urlencoding = "2"
 uuid = { version = "1", features = ["v4"] }
 whisper-rs = "0.14"
 zip = { version = "2", default-features = false, features = ["deflate"] }

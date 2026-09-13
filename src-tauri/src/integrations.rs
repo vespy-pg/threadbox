@@ -3,11 +3,16 @@
 //! Provider adapters use these contracts instead of writing provider-specific state into projects.
 //! Credentials never enter this module or SQLite; only the operating-system keyring stores them.
 
-use rusqlite::Connection;
+use chrono::Utc;
+use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use uuid::Uuid;
 
-use crate::error::AppResult;
+use crate::{
+    database::Database,
+    error::{AppError, AppResult},
+};
 
 pub const CAPABILITY_MAIL_METADATA_READ: &str = "mail_metadata_read";
 pub const CAPABILITY_MAIL_CONTENT_READ: &str = "mail_content_read";
@@ -50,6 +55,13 @@ pub struct IntegrationCapability {
     pub granted_at: Option<String>,
     pub revoked_at: Option<String>,
     pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IntegrationSnapshot {
+    pub connection: IntegrationConnection,
+    pub capabilities: Vec<IntegrationCapability>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -194,6 +206,359 @@ pub(crate) fn migrate_schema(connection: &Connection) -> AppResult<()> {
         END;",
     )?;
     Ok(())
+}
+
+impl Database {
+    pub fn integration_snapshots(
+        &self,
+        organization_id: &str,
+    ) -> AppResult<Vec<IntegrationSnapshot>> {
+        self.get_organization(organization_id)?;
+        let connection = self.connect()?;
+        let mut statement = connection.prepare(
+            "SELECT id, organization_id, provider, account_identifier, display_name, status,
+                    created_at, updated_at, deleted_at
+             FROM integration_connections
+             WHERE organization_id = ?1 AND deleted_at IS NULL ORDER BY display_name",
+        )?;
+        let connections = statement
+            .query_map([organization_id], integration_connection_from_row)?
+            .collect::<Result<Vec<_>, _>>()?;
+        connections
+            .into_iter()
+            .map(|item| {
+                Ok(IntegrationSnapshot {
+                    capabilities: integration_capabilities(&connection, &item.id)?,
+                    connection: item,
+                })
+            })
+            .collect()
+    }
+
+    pub fn upsert_integration_connection(
+        &self,
+        input: IntegrationConnectionInput,
+    ) -> AppResult<IntegrationSnapshot> {
+        self.get_organization(&input.organization_id)?;
+        if input.provider.trim().is_empty() || input.account_identifier.trim().is_empty() {
+            return Err(AppError::InvalidInput(
+                "An integration provider and account identifier are required".into(),
+            ));
+        }
+        let connection = self.connect()?;
+        let now = Utc::now().to_rfc3339();
+        let existing_id = connection
+            .query_row(
+                "SELECT id FROM integration_connections
+                 WHERE organization_id = ?1 AND provider = ?2 AND account_identifier = ?3",
+                params![
+                    input.organization_id,
+                    input.provider,
+                    input.account_identifier
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let id = existing_id.unwrap_or_else(|| Uuid::new_v4().to_string());
+        connection.execute(
+            "INSERT INTO integration_connections
+                (id, organization_id, provider, account_identifier, display_name, status,
+                 created_at, updated_at, deleted_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'connected', ?6, ?6, NULL)
+             ON CONFLICT(organization_id, provider, account_identifier) DO UPDATE SET
+                display_name = excluded.display_name, status = 'connected',
+                updated_at = excluded.updated_at, deleted_at = NULL",
+            params![
+                id,
+                input.organization_id,
+                input.provider,
+                input.account_identifier,
+                input.display_name,
+                now
+            ],
+        )?;
+        drop(connection);
+        self.integration_snapshot(&id)
+    }
+
+    pub fn set_integration_capability(
+        &self,
+        connection_id: &str,
+        capability: &str,
+        provider_scope: &str,
+        granted: bool,
+    ) -> AppResult<IntegrationSnapshot> {
+        let now = Utc::now().to_rfc3339();
+        let connection = self.connect()?;
+        let exists: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM integration_connections
+             WHERE id = ?1 AND status = 'connected' AND deleted_at IS NULL)",
+            [connection_id],
+            |row| row.get(0),
+        )?;
+        if !exists {
+            return Err(AppError::InvalidInput(
+                "That integration connection is not active".into(),
+            ));
+        }
+        let (status, granted_at, revoked_at) = if granted {
+            ("granted", Some(now.as_str()), None)
+        } else {
+            ("revoked", None, Some(now.as_str()))
+        };
+        connection.execute(
+            "INSERT INTO integration_capabilities
+                (connection_id, capability, status, provider_scope, granted_at, revoked_at,
+                 updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(connection_id, capability) DO UPDATE SET status = excluded.status,
+                provider_scope = excluded.provider_scope,
+                granted_at = CASE WHEN excluded.status = 'granted' THEN excluded.granted_at
+                                  ELSE integration_capabilities.granted_at END,
+                revoked_at = excluded.revoked_at, updated_at = excluded.updated_at",
+            params![
+                connection_id,
+                capability,
+                status,
+                provider_scope,
+                granted_at,
+                revoked_at,
+                now
+            ],
+        )?;
+        drop(connection);
+        self.integration_snapshot(connection_id)
+    }
+
+    pub fn disconnect_integration(&self, connection_id: &str) -> AppResult<()> {
+        let changed = self.connect()?.execute(
+            "UPDATE integration_connections SET status = 'disconnected', deleted_at = ?2,
+                updated_at = ?2 WHERE id = ?1 AND deleted_at IS NULL",
+            params![connection_id, Utc::now().to_rfc3339()],
+        )?;
+        if changed == 0 {
+            return Err(AppError::InvalidInput(
+                "That integration connection does not exist".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn integration_snapshot(&self, connection_id: &str) -> AppResult<IntegrationSnapshot> {
+        let connection = self.connect()?;
+        let item = connection
+            .query_row(
+                "SELECT id, organization_id, provider, account_identifier, display_name, status,
+                        created_at, updated_at, deleted_at
+                 FROM integration_connections WHERE id = ?1 AND deleted_at IS NULL",
+                [connection_id],
+                integration_connection_from_row,
+            )
+            .optional()?
+            .ok_or_else(|| AppError::InvalidInput("Integration connection not found".into()))?;
+        Ok(IntegrationSnapshot {
+            capabilities: integration_capabilities(&connection, connection_id)?,
+            connection: item,
+        })
+    }
+
+    pub fn require_integration_capability(
+        &self,
+        connection_id: &str,
+        capability: &str,
+    ) -> AppResult<IntegrationSnapshot> {
+        let snapshot = self.integration_snapshot(connection_id)?;
+        if snapshot.connection.status != "connected"
+            || !snapshot
+                .capabilities
+                .iter()
+                .any(|item| item.capability == capability && item.status == "granted")
+        {
+            return Err(AppError::InvalidInput(format!(
+                "The integration has not granted {capability}"
+            )));
+        }
+        Ok(snapshot)
+    }
+
+    pub fn create_approved_external_action(
+        &self,
+        input: &ExternalActionInput,
+    ) -> AppResult<ExternalAction> {
+        let now = Utc::now().to_rfc3339();
+        let action = ExternalAction {
+            id: Uuid::new_v4().to_string(),
+            organization_id: input.organization_id.clone(),
+            project_id: input.project_id.clone(),
+            connection_id: input.connection_id.clone(),
+            capability: input.capability.clone(),
+            kind: input.kind.clone(),
+            status: "queued".into(),
+            payload: input.payload.clone(),
+            approved_payload: Some(input.payload.clone()),
+            scheduled_at: None,
+            created_at: now.clone(),
+            updated_at: now,
+            completed_at: None,
+        };
+        self.connect()?.execute(
+            "INSERT INTO external_actions
+                (id, organization_id, project_id, connection_id, capability, kind, status,
+                 payload_json, approved_payload_json, scheduled_at, created_at, updated_at,
+                 completed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'queued', ?7, ?7, NULL, ?8, ?8, NULL)",
+            params![
+                action.id,
+                action.organization_id,
+                action.project_id,
+                action.connection_id,
+                action.capability,
+                action.kind,
+                serde_json::to_string(&action.payload)?,
+                action.created_at,
+            ],
+        )?;
+        Ok(action)
+    }
+
+    pub fn start_external_action_attempt(&self, action_id: &str) -> AppResult<i64> {
+        let mut connection = self.connect()?;
+        let transaction = connection.transaction()?;
+        let attempt: i64 = transaction.query_row(
+            "SELECT COALESCE(MAX(attempt_number), 0) + 1 FROM execution_attempts
+             WHERE action_id = ?1",
+            [action_id],
+            |row| row.get(0),
+        )?;
+        let now = Utc::now().to_rfc3339();
+        transaction.execute(
+            "UPDATE external_actions SET status = 'sending', updated_at = ?2 WHERE id = ?1",
+            params![action_id, now],
+        )?;
+        transaction.execute(
+            "INSERT INTO execution_attempts
+                (id, action_id, attempt_number, status, started_at)
+             VALUES (?1, ?2, ?3, 'started', ?4)",
+            params![Uuid::new_v4().to_string(), action_id, attempt, now],
+        )?;
+        transaction.commit()?;
+        Ok(attempt)
+    }
+
+    pub fn finish_external_action_attempt(
+        &self,
+        action_id: &str,
+        attempt: i64,
+        receipt: Option<&str>,
+        error: Option<&str>,
+    ) -> AppResult<()> {
+        let mut connection = self.connect()?;
+        let transaction = connection.transaction()?;
+        let now = Utc::now().to_rfc3339();
+        let attempt_status = if error.is_some() {
+            "failed"
+        } else {
+            "succeeded"
+        };
+        let action_status = if error.is_some() { "failed" } else { "sent" };
+        transaction.execute(
+            "UPDATE execution_attempts SET status = ?3, provider_receipt = ?4,
+                safe_error = ?5, finished_at = ?6
+             WHERE action_id = ?1 AND attempt_number = ?2",
+            params![action_id, attempt, attempt_status, receipt, error, now],
+        )?;
+        transaction.execute(
+            "UPDATE external_actions SET status = ?2, updated_at = ?3, completed_at = ?3
+             WHERE id = ?1",
+            params![action_id, action_status, now],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn link_external_calendar_event(
+        &self,
+        connection_id: &str,
+        external_id: &str,
+        project_id: &str,
+        meeting_id: &str,
+        etag: Option<&str>,
+    ) -> AppResult<()> {
+        let now = Utc::now().to_rfc3339();
+        self.connect()?.execute(
+            "INSERT INTO external_objects
+                (id, connection_id, object_kind, external_id, project_id, meeting_id, etag,
+                 created_at, updated_at)
+             VALUES (?1, ?2, 'calendar_event', ?3, ?4, ?5, ?6, ?7, ?7)
+             ON CONFLICT(connection_id, object_kind, external_id) DO UPDATE SET
+                project_id = excluded.project_id, meeting_id = excluded.meeting_id,
+                etag = excluded.etag, updated_at = excluded.updated_at, deleted_at = NULL",
+            params![
+                Uuid::new_v4().to_string(),
+                connection_id,
+                external_id,
+                project_id,
+                meeting_id,
+                etag,
+                now
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn external_calendar_meeting_id(
+        &self,
+        connection_id: &str,
+        external_id: &str,
+    ) -> AppResult<Option<String>> {
+        Ok(self
+            .connect()?
+            .query_row(
+                "SELECT meeting_id FROM external_objects
+                 WHERE connection_id = ?1 AND object_kind = 'calendar_event'
+                   AND external_id = ?2 AND deleted_at IS NULL",
+                params![connection_id, external_id],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+}
+
+fn integration_connection_from_row(row: &Row<'_>) -> rusqlite::Result<IntegrationConnection> {
+    Ok(IntegrationConnection {
+        id: row.get(0)?,
+        organization_id: row.get(1)?,
+        provider: row.get(2)?,
+        account_identifier: row.get(3)?,
+        display_name: row.get(4)?,
+        status: row.get(5)?,
+        created_at: row.get(6)?,
+        updated_at: row.get(7)?,
+        deleted_at: row.get(8)?,
+    })
+}
+
+fn integration_capabilities(
+    connection: &Connection,
+    connection_id: &str,
+) -> AppResult<Vec<IntegrationCapability>> {
+    let mut statement = connection.prepare(
+        "SELECT connection_id, capability, status, provider_scope, granted_at, revoked_at,
+                updated_at FROM integration_capabilities
+         WHERE connection_id = ?1 ORDER BY capability",
+    )?;
+    let rows = statement.query_map([connection_id], |row| {
+        Ok(IntegrationCapability {
+            connection_id: row.get(0)?,
+            capability: row.get(1)?,
+            status: row.get(2)?,
+            provider_scope: row.get(3)?,
+            granted_at: row.get(4)?,
+            revoked_at: row.get(5)?,
+            updated_at: row.get(6)?,
+        })
+    })?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
 #[cfg(test)]
@@ -343,5 +708,47 @@ mod tests {
         assert!(insert().is_err());
         set_capability(&database, &account_id, CAPABILITY_MAIL_SEND, "granted");
         assert_eq!(insert().unwrap(), 1);
+    }
+
+    #[test]
+    fn an_approved_action_keeps_its_payload_and_immutable_attempt() {
+        let database = database();
+        let organization_id = organization(&database);
+        let account_id = integration(&database, &organization_id);
+        set_capability(&database, &account_id, CAPABILITY_CALENDAR_WRITE, "granted");
+        let action = database
+            .create_approved_external_action(&ExternalActionInput {
+                organization_id,
+                project_id: None,
+                connection_id: account_id,
+                capability: CAPABILITY_CALENDAR_WRITE.into(),
+                kind: "calendar.event.create".into(),
+                payload: serde_json::json!({"summary": "Review"}),
+            })
+            .unwrap();
+        assert_eq!(action.approved_payload, Some(action.payload.clone()));
+        let attempt = database.start_external_action_attempt(&action.id).unwrap();
+        database
+            .finish_external_action_attempt(&action.id, attempt, Some("google-event-1"), None)
+            .unwrap();
+        let connection = database.connect().unwrap();
+        let action_status: String = connection
+            .query_row(
+                "SELECT status FROM external_actions WHERE id = ?1",
+                [&action.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let (attempt_status, receipt): (String, String) = connection
+            .query_row(
+                "SELECT status, provider_receipt FROM execution_attempts
+                 WHERE action_id = ?1 AND attempt_number = 1",
+                [&action.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(action_status, "sent");
+        assert_eq!(attempt_status, "succeeded");
+        assert_eq!(receipt, "google-event-1");
     }
 }

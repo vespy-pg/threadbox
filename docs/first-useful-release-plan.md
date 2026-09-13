@@ -55,11 +55,13 @@ records.
 | Availability | Yes, busy intervals only | No | Google Calendar FreeBusy API |
 | Cloud transcription | Yes, sends the selected audio | Creates a transcript in Threadbox only | OpenAI transcription API initially |
 
-Google authentication may identify the account once, but consent must be requested incrementally for
-each capability. Gmail read and compose scopes are restricted scopes and create verification and
-security-assessment obligations if restricted data is stored or transmitted by a server. The first
-release keeps sync and processing on the desktop and requests the narrowest scope that implements the
-selected feature.
+Google authentication may identify the account once, but [Google's installed-app flow](https://developers.google.com/identity/protocols/oauth2/native-app)
+does not support incremental authorization. Threadbox still enables capabilities one at a time in its own interface;
+when another Google capability is added, it reauthorizes the complete union of capabilities currently
+enabled for that connection. Gmail read and compose scopes are restricted scopes and create
+verification and security-assessment obligations if restricted data is stored or transmitted by a
+server. The first release keeps sync and processing on the desktop and requests only the union needed
+for the locally enabled capabilities.
 
 Google Calendar has a read-only scope and a combined view-and-edit event scope, but no general
 create-only event scope. Threadbox still exposes `Read calendar` and `Manage calendar events` as
@@ -211,6 +213,12 @@ Acceptance: the same recording can be transcribed locally or in the cloud, faile
 silently falls back or uploads through another provider, and the source recording remains unchanged.
 
 ### Milestone 2: Google connection and calendar
+
+Implementation: desktop browser OAuth with PKCE and a random loopback callback, keyring token storage
+and refresh, independent local capability grants, calendar/event listing, event import, reviewed event
+creation with immutable execution attempts, and multi-calendar free/busy intersection are implemented.
+The availability algorithm applies IANA time zones across daylight-saving changes, working hours and
+buffers. A verified production OAuth client and credentialed end-to-end tests remain release work.
 
 - Implement desktop OAuth with incremental permission grants and token refresh.
 - Add account and permission management to organisation Integrations.

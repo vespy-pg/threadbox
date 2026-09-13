@@ -169,6 +169,7 @@ export interface AppSettings {
   clockFormat: ClockFormat;
   audioInputMode: AudioInputMode;
   taskRetentionDays: number;
+  googleOauthClientId: string;
   speech: SpeechSettings;
   languageModel: LanguageModelSettings;
 }
@@ -375,4 +376,87 @@ export interface Person {
 export interface OrganizationMember {
   role: string | null;
   person: Person;
+}
+
+export type IntegrationCapabilityId = "calendar_read" | "calendar_write" | "calendar_free_busy" | "mail_metadata_read" | "mail_content_read" | "mail_send";
+
+export interface IntegrationConnection {
+  id: string;
+  organizationId: string;
+  provider: string;
+  accountIdentifier: string;
+  displayName: string;
+  status: "connected" | "degraded" | "disconnected";
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export interface IntegrationCapability {
+  connectionId: string;
+  capability: IntegrationCapabilityId;
+  status: "granted" | "revoked";
+  providerScope: string | null;
+  grantedAt: string | null;
+  revokedAt: string | null;
+  updatedAt: string;
+}
+
+export interface IntegrationSnapshot {
+  connection: IntegrationConnection;
+  capabilities: IntegrationCapability[];
+}
+
+export interface ExternalCalendar {
+  id: string;
+  summary: string;
+  primary: boolean;
+  accessRole: string;
+  timeZone: string | null;
+}
+
+export interface ExternalCalendarEvent {
+  id: string;
+  calendarId: string;
+  summary: string;
+  description: string;
+  start: string;
+  end: string;
+  allDay: boolean;
+  timeZone: string | null;
+  htmlLink: string | null;
+  conferenceLink: string | null;
+  attendees: string[];
+  etag: string | null;
+}
+
+export interface CalendarEventDraft {
+  organizationId: string;
+  projectId: string | null;
+  connectionId: string;
+  calendarId: string;
+  summary: string;
+  description: string;
+  start: string;
+  end: string;
+  timeZone: string;
+  attendees: string[];
+  addGoogleMeet: boolean;
+}
+
+export interface FindTimeInput {
+  connectionId: string;
+  calendarIds: string[];
+  timeMin: string;
+  timeMax: string;
+  durationMinutes: number;
+  bufferMinutes: number;
+  timeZone: string;
+  workdayStart: string;
+  workdayEnd: string;
+}
+
+export interface AvailableSlot {
+  start: string;
+  end: string;
 }

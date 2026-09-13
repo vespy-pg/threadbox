@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { readImage } from "@tauri-apps/plugin-clipboard-manager";
 import { setMediaRoot } from "./media";
-import type { AppSettings, ApiProvider, LanguageModelStatus, Meeting, MeetingAnalysis, MeetingInput, MeetingTranscript, ModelStatus, Organization, OrganizationMember, Person, ProcessingJob, Project, ProjectDocument, ProjectDocumentInput, ProjectLanguage, ProviderProbe, SpeechCloudStatus, SpeechModelId, SpeechProvider, Task, TaskInput, TaskPatch, VocabularyCandidate, VocabularySet, VocabularySetInput, VocabularyTerm, VocabularyTermInput } from "./types";
+import type { AppSettings, ApiProvider, AvailableSlot, CalendarEventDraft, ExternalCalendar, ExternalCalendarEvent, FindTimeInput, IntegrationCapabilityId, IntegrationSnapshot, LanguageModelStatus, Meeting, MeetingAnalysis, MeetingInput, MeetingTranscript, ModelStatus, Organization, OrganizationMember, Person, ProcessingJob, Project, ProjectDocument, ProjectDocumentInput, ProjectLanguage, ProviderProbe, SpeechCloudStatus, SpeechModelId, SpeechProvider, Task, TaskInput, TaskPatch, VocabularyCandidate, VocabularySet, VocabularySetInput, VocabularyTerm, VocabularyTermInput } from "./types";
 
 const inTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 
@@ -20,6 +20,7 @@ const browserSettings: AppSettings = {
   clockFormat: "24h",
   audioInputMode: "microphone",
   taskRetentionDays: 7,
+  googleOauthClientId: "",
   speech: { provider: "local", model: "small", language: "auto", terminologyLanguage: null, cloudModel: "whisper-1" },
   languageModel: {
     kind: "unset",
@@ -393,6 +394,46 @@ export const api = {
     if (settings.startAtLogin) await enableAutostart();
     else await disableAutostart();
     return invoke<AppSettings>("update_settings", { settings });
+  },
+
+  async listIntegrationConnections(organizationId: string): Promise<IntegrationSnapshot[]> {
+    return inTauri() ? invoke<IntegrationSnapshot[]>("list_integration_connections", { organizationId }) : [];
+  },
+
+  async connectGoogle(organizationId: string, connectionId?: string): Promise<IntegrationSnapshot> {
+    return invoke<IntegrationSnapshot>("connect_google", { organizationId, connectionId: connectionId ?? null });
+  },
+
+  async grantGoogleCapability(connectionId: string, capability: IntegrationCapabilityId): Promise<IntegrationSnapshot> {
+    return invoke<IntegrationSnapshot>("grant_google_capability", { connectionId, capability });
+  },
+
+  async revokeGoogleCapability(connectionId: string, capability: IntegrationCapabilityId): Promise<IntegrationSnapshot> {
+    return invoke<IntegrationSnapshot>("revoke_google_capability", { connectionId, capability });
+  },
+
+  async disconnectGoogle(connectionId: string): Promise<void> {
+    await invoke<void>("disconnect_google", { connectionId });
+  },
+
+  async listGoogleCalendars(connectionId: string): Promise<ExternalCalendar[]> {
+    return invoke<ExternalCalendar[]>("list_google_calendars", { connectionId });
+  },
+
+  async listGoogleCalendarEvents(connectionId: string, calendarId: string, timeMin: string, timeMax: string): Promise<ExternalCalendarEvent[]> {
+    return invoke<ExternalCalendarEvent[]>("list_google_calendar_events", { connectionId, calendarId, timeMin, timeMax });
+  },
+
+  async createGoogleCalendarEvent(draft: CalendarEventDraft): Promise<ExternalCalendarEvent> {
+    return invoke<ExternalCalendarEvent>("create_google_calendar_event", { draft });
+  },
+
+  async importGoogleCalendarEvent(connectionId: string, projectId: string, event: ExternalCalendarEvent): Promise<Meeting> {
+    return invoke<Meeting>("import_google_calendar_event", { connectionId, projectId, event });
+  },
+
+  async findGoogleCalendarTime(input: FindTimeInput): Promise<AvailableSlot[]> {
+    return invoke<AvailableSlot[]>("find_google_calendar_time", { input });
   },
 
   async captureScreenshot(): Promise<string> {

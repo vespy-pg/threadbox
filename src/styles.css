@@ -541,6 +541,28 @@ blockquote { margin: 8px 0 0; padding-left: 12px; border-left: 2px solid #a9c8b9
 .provider-setup h3 { margin-bottom: 5px; font-size: 14px; }
 .provider-setup p { margin-bottom: 10px; color: var(--muted); line-height: 1.5; font-size: 12px; }
 .provider-subheading { margin: 18px 0 8px; color: var(--ink); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
+.google-integration { margin-bottom: 16px; }
+.oauth-client-settings { margin: 14px 0; padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; background: #fbfcfb; }
+.oauth-client-settings summary { cursor: pointer; font-size: 11px; font-weight: 700; }
+.oauth-client-settings p { margin: 8px 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.oauth-client-settings > div { display: flex; gap: 8px; }.oauth-client-settings input { flex: 1; min-width: 0; padding: 8px 9px; }
+.google-connections { display: grid; gap: 10px; }.google-connect { justify-self: start; }
+.google-account-card { padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: white; }
+.google-account-card header, .google-account-card footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.google-account-card header div { display: grid; gap: 2px; }.google-account-card header small { color: var(--muted); font-size: 10px; }
+.google-account-card footer { justify-content: flex-end; margin-top: 10px; }
+.capability-list { display: grid; gap: 7px; margin-top: 11px; }.capability-list > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px; border-radius: 8px; background: var(--paper); }.capability-list span { display: grid; gap: 2px; }.capability-list strong { font-size: 11px; }.capability-list small { color: var(--muted); font-size: 9px; line-height: 1.4; }
+.integration-permission-note { margin: 12px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.calendar-project-panel { margin-bottom: 14px; padding: 13px; border: 1px solid #dce5df; border-radius: 11px; background: #f7faf8; }
+.calendar-project-panel.empty { display: flex; align-items: center; gap: 10px; }.calendar-project-panel.empty > div { display: grid; gap: 2px; flex: 1; }.calendar-project-panel.empty small { color: var(--muted); font-size: 10px; }
+.calendar-project-panel > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }.calendar-project-panel > header div { display: grid; gap: 2px; }.calendar-project-panel > header small { color: var(--muted); font-size: 9px; }.calendar-project-panel > header select { min-height: 31px; }
+.calendar-project-panel > nav { display: flex; gap: 5px; margin: 10px 0; border-bottom: 1px solid var(--line); }.calendar-project-panel > nav button { padding: 7px 9px; border: 0; border-bottom: 2px solid transparent; color: var(--muted); background: transparent; cursor: pointer; font-size: 10px; }.calendar-project-panel > nav button.active { border-bottom-color: var(--green); color: var(--green-dark); font-weight: 700; }.calendar-project-panel > nav button:disabled { opacity: .45; cursor: default; }
+.calendar-picker { display: flex; align-items: center; gap: 8px; font-size: 10px; }.calendar-picker select { min-height: 30px; }
+.external-event-list { display: grid; gap: 6px; margin-top: 9px; max-height: 230px; overflow-y: auto; }.external-event-list article { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 9px; border-radius: 8px; background: white; }.external-event-list article div { display: grid; gap: 2px; }.external-event-list strong { font-size: 10px; }.external-event-list small, .external-event-list p { color: var(--muted); font-size: 9px; }
+.calendar-form { display: grid; gap: 9px; }.calendar-form > div { display: flex; gap: 8px; flex-wrap: wrap; }.calendar-form label { display: grid; gap: 4px; flex: 1; font-size: 9px; }.calendar-form input { min-width: 0; padding: 7px 8px; }.calendar-form > button { justify-self: start; }
+.calendar-preview { display: grid; gap: 5px; padding: 12px; border: 1px solid #b9d2c4; border-radius: 9px; background: white; font-size: 10px; }.calendar-preview > div { display: flex; justify-content: flex-end; gap: 7px; margin-top: 7px; }
+.permission-prompt { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 10px; }
+.available-slots { display: flex; gap: 6px; flex-wrap: wrap; }.available-slots button { padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px; color: var(--green-dark); background: white; cursor: pointer; font-size: 9px; }
 .welcome-providers { max-height: calc(100vh - 40px); overflow-y: auto; }
 .welcome-actions { display: flex; gap: 9px; }
 .spin { animation: spin 1s linear infinite; }

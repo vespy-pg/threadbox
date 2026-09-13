@@ -3,6 +3,8 @@ mod cloud_speech;
 mod database;
 mod documents;
 mod error;
+mod google;
+mod google_calendar;
 mod integration;
 pub mod integrations;
 mod media;
@@ -25,6 +27,13 @@ use base64::Engine;
 use database::{Database, Task, TaskInput};
 use documents::{ProjectDocument, ProjectDocumentInput};
 use error::AppResult;
+use google_calendar::{
+    AvailableSlot, CalendarEventDraft, ExternalCalendar, ExternalCalendarEvent, FindTimeInput,
+};
+use integrations::{
+    ExternalActionInput, IntegrationConnectionInput, IntegrationSnapshot,
+    CAPABILITY_CALENDAR_FREE_BUSY, CAPABILITY_CALENDAR_READ, CAPABILITY_CALENDAR_WRITE,
+};
 use meetings::{Meeting, MeetingInput};
 use native_audio::{
     MeetingAudioRecorder, NativeAudioPlayer, NativeAudioRecorder, NativeRecordingResult,
@@ -51,6 +60,47 @@ struct SpeechCloudStatus {
     model: String,
     configured: bool,
     key_present: bool,
+}
+
+fn configured_google_client_id() -> AppResult<String> {
+    let configured = AppSettings::load()?.google_oauth_client_id;
+    if !configured.trim().is_empty() {
+        return Ok(configured.trim().to_string());
+    }
+    Ok(option_env!("THREADBOX_GOOGLE_CLIENT_ID")
+        .unwrap_or_default()
+        .to_string())
+}
+
+fn google_capability_scope(capability: &str) -> AppResult<&'static str> {
+    match capability {
+        CAPABILITY_CALENDAR_READ => Ok(google::SCOPE_CALENDAR_READ),
+        CAPABILITY_CALENDAR_WRITE => Ok(google::SCOPE_CALENDAR_WRITE),
+        CAPABILITY_CALENDAR_FREE_BUSY => Ok(google::SCOPE_CALENDAR_FREE_BUSY),
+        _ => Err(error::AppError::InvalidInput(format!(
+            "Unknown Google Calendar capability: {capability}"
+        ))),
+    }
+}
+
+fn google_scopes(
+    snapshot: &IntegrationSnapshot,
+    added: Option<&str>,
+) -> AppResult<Vec<&'static str>> {
+    let mut scopes = google::SCOPE_IDENTITY.to_vec();
+    for capability in snapshot
+        .capabilities
+        .iter()
+        .filter(|item| item.status == "granted")
+        .map(|item| item.capability.as_str())
+        .chain(added)
+    {
+        let scope = google_capability_scope(capability)?;
+        if !scopes.contains(&scope) {
+            scopes.push(scope);
+        }
+    }
+    Ok(scopes)
 }
 
 #[tauri::command]
@@ -716,6 +766,247 @@ fn update_settings(settings: AppSettings) -> AppResult<AppSettings> {
 }
 
 #[tauri::command]
+fn list_integration_connections(
+    database: tauri::State<'_, Database>,
+    organization_id: String,
+) -> AppResult<Vec<IntegrationSnapshot>> {
+    database.integration_snapshots(&organization_id)
+}
+
+#[tauri::command]
+async fn connect_google(
+    database: tauri::State<'_, Database>,
+    organization_id: String,
+    connection_id: Option<String>,
+) -> AppResult<IntegrationSnapshot> {
+    let client_id = configured_google_client_id()?;
+    let database = database.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let existing = connection_id
+            .as_deref()
+            .map(|id| database.integration_snapshot(id))
+            .transpose()?;
+        if existing
+            .as_ref()
+            .is_some_and(|item| item.connection.organization_id != organization_id)
+        {
+            return Err(error::AppError::InvalidInput(
+                "That Google connection belongs to another organisation".into(),
+            ));
+        }
+        let scopes = existing
+            .as_ref()
+            .map(|snapshot| google_scopes(snapshot, None))
+            .transpose()?
+            .unwrap_or_else(|| google::SCOPE_IDENTITY.to_vec());
+        let login_hint = existing
+            .as_ref()
+            .map(|item| item.connection.account_identifier.as_str());
+        let (token, profile) = google::authorize(&client_id, &scopes, login_hint)?;
+        if login_hint.is_some_and(|expected| !profile.email.eq_ignore_ascii_case(expected)) {
+            return Err(error::AppError::InvalidInput(
+                "Google authorized a different account than the connection being repaired".into(),
+            ));
+        }
+        let snapshot = database.upsert_integration_connection(IntegrationConnectionInput {
+            organization_id,
+            provider: "google".into(),
+            account_identifier: profile.email.clone(),
+            display_name: if profile.name.trim().is_empty() {
+                profile.email
+            } else {
+                profile.name
+            },
+        })?;
+        google::store_authorized_token(&snapshot.connection.id, token)?;
+        Ok(snapshot)
+    })
+    .await
+    .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
+}
+
+#[tauri::command]
+async fn grant_google_capability(
+    database: tauri::State<'_, Database>,
+    connection_id: String,
+    capability: String,
+) -> AppResult<IntegrationSnapshot> {
+    let client_id = configured_google_client_id()?;
+    let database = database.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let snapshot = database.integration_snapshot(&connection_id)?;
+        if snapshot.connection.provider != "google" {
+            return Err(error::AppError::InvalidInput(
+                "That is not a Google connection".into(),
+            ));
+        }
+        let scope = google_capability_scope(&capability)?;
+        let scopes = google_scopes(&snapshot, Some(&capability))?;
+        let (token, profile) = google::authorize(
+            &client_id,
+            &scopes,
+            Some(&snapshot.connection.account_identifier),
+        )?;
+        if !profile
+            .email
+            .eq_ignore_ascii_case(&snapshot.connection.account_identifier)
+        {
+            return Err(error::AppError::InvalidInput(
+                "Google authorized a different account".into(),
+            ));
+        }
+        google::store_authorized_token(&connection_id, token)?;
+        database.set_integration_capability(&connection_id, &capability, scope, true)
+    })
+    .await
+    .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
+}
+
+#[tauri::command]
+fn revoke_google_capability(
+    database: tauri::State<'_, Database>,
+    connection_id: String,
+    capability: String,
+) -> AppResult<IntegrationSnapshot> {
+    let scope = google_capability_scope(&capability)?;
+    database.set_integration_capability(&connection_id, &capability, scope, false)
+}
+
+#[tauri::command]
+fn disconnect_google(database: tauri::State<'_, Database>, connection_id: String) -> AppResult<()> {
+    google::delete_token(&connection_id)?;
+    database.disconnect_integration(&connection_id)
+}
+
+#[tauri::command]
+async fn list_google_calendars(
+    database: tauri::State<'_, Database>,
+    connection_id: String,
+) -> AppResult<Vec<ExternalCalendar>> {
+    let client_id = configured_google_client_id()?;
+    let database = database.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        database.google_calendars(&connection_id, &client_id)
+    })
+    .await
+    .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
+}
+
+#[tauri::command]
+async fn list_google_calendar_events(
+    database: tauri::State<'_, Database>,
+    connection_id: String,
+    calendar_id: String,
+    time_min: String,
+    time_max: String,
+) -> AppResult<Vec<ExternalCalendarEvent>> {
+    let client_id = configured_google_client_id()?;
+    let database = database.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        database.google_calendar_events(
+            &connection_id,
+            &client_id,
+            &calendar_id,
+            &time_min,
+            &time_max,
+        )
+    })
+    .await
+    .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
+}
+
+#[tauri::command]
+async fn create_google_calendar_event(
+    database: tauri::State<'_, Database>,
+    draft: CalendarEventDraft,
+) -> AppResult<ExternalCalendarEvent> {
+    let client_id = configured_google_client_id()?;
+    let database = database.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let action = database.create_approved_external_action(&ExternalActionInput {
+            organization_id: draft.organization_id.clone(),
+            project_id: draft.project_id.clone(),
+            connection_id: draft.connection_id.clone(),
+            capability: CAPABILITY_CALENDAR_WRITE.into(),
+            kind: "calendar.event.create".into(),
+            payload: serde_json::to_value(&draft)?,
+        })?;
+        let attempt = database.start_external_action_attempt(&action.id)?;
+        let result = database.create_google_calendar_event(&client_id, &draft);
+        match result {
+            Ok(event) => {
+                database.finish_external_action_attempt(
+                    &action.id,
+                    attempt,
+                    Some(&event.id),
+                    None,
+                )?;
+                Ok(event)
+            }
+            Err(error) => {
+                database.finish_external_action_attempt(
+                    &action.id,
+                    attempt,
+                    None,
+                    Some(&error.to_string()),
+                )?;
+                Err(error)
+            }
+        }
+    })
+    .await
+    .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
+}
+
+#[tauri::command]
+fn import_google_calendar_event(
+    database: tauri::State<'_, Database>,
+    connection_id: String,
+    project_id: String,
+    event: ExternalCalendarEvent,
+) -> AppResult<Meeting> {
+    database.require_integration_capability(&connection_id, CAPABILITY_CALENDAR_READ)?;
+    let snapshot = database.integration_snapshot(&connection_id)?;
+    let project = database.get_project(&project_id)?;
+    if project.organization_id != snapshot.connection.organization_id {
+        return Err(error::AppError::InvalidInput(
+            "The event and project must belong to the same organisation".into(),
+        ));
+    }
+    let external_id = format!("{}:{}", event.calendar_id, event.id);
+    if let Some(meeting_id) = database.external_calendar_meeting_id(&connection_id, &external_id)? {
+        return database.get_meeting(&meeting_id);
+    }
+    let meeting = database.create_meeting(MeetingInput {
+        project_id: Some(project_id.clone()),
+        title: event.summary.clone(),
+        scheduled_start: (!event.all_day).then_some(event.start.clone()),
+    })?;
+    database.link_external_calendar_event(
+        &connection_id,
+        &external_id,
+        &project_id,
+        &meeting.id,
+        event.etag.as_deref(),
+    )?;
+    Ok(meeting)
+}
+
+#[tauri::command]
+async fn find_google_calendar_time(
+    database: tauri::State<'_, Database>,
+    input: FindTimeInput,
+) -> AppResult<Vec<AvailableSlot>> {
+    let client_id = configured_google_client_id()?;
+    let database = database.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        database.find_google_calendar_time(&client_id, &input)
+    })
+    .await
+    .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
+}
+
+#[tauri::command]
 async fn capture_screenshot() -> AppResult<String> {
     screenshot::capture().await
 }
@@ -920,6 +1211,16 @@ pub fn run() {
             delete_language_model_key,
             get_settings,
             update_settings,
+            list_integration_connections,
+            connect_google,
+            grant_google_capability,
+            revoke_google_capability,
+            disconnect_google,
+            list_google_calendars,
+            list_google_calendar_events,
+            create_google_calendar_event,
+            import_google_calendar_event,
+            find_google_calendar_time,
             capture_screenshot,
             start_native_recording,
             warm_up_audio,

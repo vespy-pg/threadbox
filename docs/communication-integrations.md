@@ -79,9 +79,12 @@ internet. The first version can poll APIs that support it. Full automation needs
 always-reachable, user-authorised Threadbox bridge that validates webhooks and delivers events to the
 desktop later.
 
-OAuth credentials belong to the operating system keyring. Google Calendar and Gmail should share one
-Google connection with separately requested scopes. Desktop OAuth should use a loopback callback or a
-registered application URI, never ask the user to paste account passwords into Threadbox.
+OAuth credentials belong to the operating system keyring. Google Calendar and Gmail share one Google
+connection with separately enabled product capabilities. Because [Google does not support incremental
+authorization for installed apps](https://developers.google.com/identity/protocols/oauth2/native-app),
+adding one capability reauthorizes the union of scopes currently
+enabled for that connection. Desktop OAuth uses PKCE, the system browser and a random loopback
+callback, never asks the user to paste account passwords into Threadbox.
 
 ## Local language model on the current computer
 

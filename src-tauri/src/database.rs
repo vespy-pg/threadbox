@@ -840,7 +840,15 @@ fn append_directory_to_zip(
             let relative = path
                 .strip_prefix(root)
                 .map_err(|error| AppError::InvalidInput(error.to_string()))?;
-            archive.start_file(format!("media/{}", relative.to_string_lossy()), options)?;
+            let archive_path = relative
+                .components()
+                .filter_map(|component| match component {
+                    std::path::Component::Normal(value) => Some(value.to_string_lossy()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("/");
+            archive.start_file(format!("media/{archive_path}"), options)?;
             let mut source = fs::File::open(path)?;
             std::io::copy(&mut source, archive)?;
         }

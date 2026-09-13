@@ -68,7 +68,7 @@ const viewTitles: Record<TaskView, string> = {
 
 const inTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 const meetingRecordingShortcut = "CommandOrControl+Shift+M";
-const defaultSettings: AppSettings = { welcomeCompleted: false, startAtLogin: true, quickCaptureShortcut: "CommandOrControl+Shift+Space", overdueRemindersEnabled: true, overdueIntervalMinutes: 15, stickyRemindersEnabled: true, tomorrowReminderTime: "08:30", clockFormat: "24h", audioInputMode: "microphone", taskRetentionDays: 7, speech: { provider: "local", model: "small", language: "auto", terminologyLanguage: null, cloudModel: "whisper-1" }, languageModel: { kind: "unset", local: { baseUrl: "http://127.0.0.1:11434/v1", model: "", managed: false, command: "", idleTimeoutMinutes: 10 }, api: { provider: "", baseUrl: "", model: "" }, agent: { command: "", arguments: [] } } };
+const defaultSettings: AppSettings = { welcomeCompleted: false, startAtLogin: true, quickCaptureShortcut: "CommandOrControl+Shift+Space", overdueRemindersEnabled: true, overdueIntervalMinutes: 15, stickyRemindersEnabled: true, tomorrowReminderTime: "08:30", clockFormat: "24h", audioInputMode: "microphone", taskRetentionDays: 7, googleOauthClientId: "", speech: { provider: "local", model: "small", language: "auto", terminologyLanguage: null, cloudModel: "whisper-1" }, languageModel: { kind: "unset", local: { baseUrl: "http://127.0.0.1:11434/v1", model: "", managed: false, command: "", idleTimeoutMinutes: 10 }, api: { provider: "", baseUrl: "", model: "" }, agent: { command: "", arguments: [] } } };
 const pageSize = 20;
 export type ReminderPreset = "15m" | "1h" | "3h" | "6h" | "24h" | "tomorrow";
 const reminderPresets: Array<{ value: ReminderPreset; label: string }> = [
@@ -497,7 +497,7 @@ export default function App() {
         {area === "documents" && activeProject && <DocumentsWorkspace project={activeProject} workspace={workspace} onReload={reloadWorkspace} onError={setError} />}
         {area === "communication" && activeProject && <CommunicationWorkspace project={activeProject} workspace={workspace} onIntegrations={() => { setActiveProjectId(null); setArea("integrations"); }} />}
         {area === "vocabulary" && activeProject && <VocabularyWorkspace project={activeProject} workspace={workspace} onError={setError} />}
-        {area === "integrations" && activeOrganization && <IntegrationsWorkspace organization={activeOrganization} />}
+        {area === "integrations" && activeOrganization && <IntegrationsWorkspace organization={activeOrganization} onError={setError} />}
         {area !== "threads" && !activeOrganization && <section className="workspace-page workspace-start"><div className="module-icon"><Plus size={24} /></div><p className="eyebrow">Start with context</p><h1>Create your first organisation</h1><p>An organisation keeps its projects, people, meetings and documents together without mixing client contexts.</p><button className="primary-button" onClick={() => void createOrganization()}>Create organisation</button></section>}
         </div>
       </section>

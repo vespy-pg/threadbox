@@ -24,6 +24,10 @@ pub(crate) fn speech_account(provider: &str) -> String {
     format!("speech/{provider}")
 }
 
+pub(crate) fn integration_account(provider: &str, connection_id: &str) -> String {
+    format!("integration/{provider}/{connection_id}")
+}
+
 pub(crate) fn store(account: &str, secret: &str) -> AppResult<()> {
     let secret = secret.trim();
     if secret.is_empty() {

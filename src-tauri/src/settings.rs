@@ -28,6 +28,10 @@ pub struct AppSettings {
     pub audio_input_mode: String,
     #[serde(default = "default_task_retention_days")]
     pub task_retention_days: u64,
+    /// Public OAuth client identifier for the Threadbox desktop application. Release builds will
+    /// ship the project's identifier; this override keeps development builds testable.
+    #[serde(default)]
+    pub google_oauth_client_id: String,
     /// Speech recognition provider, model and language. Absent in files written before providers
     /// were configurable, which is why it carries a default rather than being required.
     #[serde(default)]
@@ -51,6 +55,7 @@ impl Default for AppSettings {
             clock_format: default_clock_format(),
             audio_input_mode: default_audio_input_mode(),
             task_retention_days: default_task_retention_days(),
+            google_oauth_client_id: String::new(),
             speech: SpeechSettings::default(),
             language_model: LanguageModelSettings::default(),
         }
