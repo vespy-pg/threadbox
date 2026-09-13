@@ -17,13 +17,12 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-ashpd = { version = "0.13", default-features = false, features = ["tokio", "screenshot"] }
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
-cpal = { version = "0.18", features = ["pulseaudio"] }
+cpal = { version = "0.18", default-features = false }
 directories = "5"
 hound = "3.5"
-keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
+keyring = { version = "3", default-features = false }
 open = "5"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
@@ -45,7 +44,13 @@ whisper-rs = "0.14"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+ashpd = { version = "0.13", default-features = false, features = ["tokio", "screenshot"] }
+cpal = { version = "0.18", default-features = false, features = ["pulseaudio"] }
+keyring = { version = "3", default-features = false, features = ["sync-secret-service", "crypto-rust"] }
 notify-rust = "4"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["windows-native"] }
 
 [features]
 default = ["custom-protocol"]

@@ -3,6 +3,7 @@ mod database;
 mod documents;
 mod error;
 mod integration;
+pub mod integrations;
 mod media;
 mod meetings;
 mod native_audio;
