@@ -135,8 +135,8 @@ pub(crate) fn recover_interrupted_jobs(connection: &Connection) -> AppResult<()>
     connection.execute(
         "UPDATE processing_jobs SET status = 'queued', started_at = NULL,
             error = 'Threadbox restarted while this job was running', updated_at = ?1
-         WHERE kind = ?2 AND status = 'running'",
-        params![Utc::now().to_rfc3339(), JOB_KIND],
+         WHERE status = 'running'",
+        [Utc::now().to_rfc3339()],
     )?;
     Ok(())
 }

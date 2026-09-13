@@ -1,8 +1,7 @@
 # Speech and language model providers
 
-Status: configuration implemented, see the Status section at the end. Analysis itself, and the
-supervisor that starts and stops a local server, arrive with the analysis step in
-`implementation-plan.md`.
+Status: configuration and analysis requests implemented, including the managed local-server
+lifecycle. See the Status section at the end.
 
 ## The shape of the decision
 
@@ -162,19 +161,19 @@ Implemented:
   surprising language is traceable to where it was set.
 - **The language model provider is configurable** as a local server, an external provider with the
   user's own key, or an agent command line tool. Each has its own fields, and a test button asks the
-  configured provider whether it is reachable. That button is the only thing that reaches a provider;
-  nothing else does until analysis exists.
+  configured provider whether it is reachable. Meeting analysis now uses the selected provider after
+  the user explicitly requests it, and a persisted request resumes after an application restart.
 - **Keys live in the operating system keyring**, one entry per provider so switching provider does not
   discard the other key. The settings file records only which provider is selected. A key can be
   removed, which deletes the credential, and no code path returns a stored key to the interface.
 - **The choice is offered once during the first run**, as the second screen of the welcome flow, and
   skipping it is allowed: nothing breaks until analysis is asked for.
 
-Recorded but not yet acted on:
+- **Managed local-server lifecycle is active.** Threadbox starts the configured command only for an
+  analysis request, lowers its scheduling priority, waits for its compatible endpoint, and stops the
+  exact child process after the idle timeout or application exit. It never matches processes by name.
 
-- `managed` and the idle timeout for a local server are stored, and nothing starts or stops a process
-  yet. The supervisor those settings describe is part of the analysis step, because there is nothing
-  to supervise until something makes requests. Until then the local option means a server the user
-  runs.
+Still not implemented:
+
 - Official provider sign-in has no implementation, because the survey above found no published flow a
   third-party application may use for inference. The provider list is the place to add one.

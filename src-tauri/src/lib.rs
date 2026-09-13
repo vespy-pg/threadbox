@@ -1,3 +1,4 @@
+mod analysis;
 mod database;
 mod documents;
 mod error;
@@ -16,6 +17,7 @@ mod workspace;
 
 use std::path::PathBuf;
 
+use analysis::MeetingAnalysis;
 use base64::Engine;
 use database::{Database, Task, TaskInput};
 use documents::{ProjectDocument, ProjectDocumentInput};
@@ -364,6 +366,37 @@ async fn transcribe_meeting(
     .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
 }
 
+#[tauri::command]
+fn meeting_analysis(
+    database: tauri::State<'_, Database>,
+    id: String,
+) -> AppResult<Option<MeetingAnalysis>> {
+    database.meeting_analysis(&id)
+}
+
+#[tauri::command]
+fn meeting_analysis_jobs(
+    database: tauri::State<'_, Database>,
+    id: String,
+) -> AppResult<Vec<ProcessingJob>> {
+    database.list_meeting_analysis_jobs(&id)
+}
+
+#[tauri::command]
+async fn analyse_meeting(
+    database: tauri::State<'_, Database>,
+    id: String,
+) -> AppResult<MeetingAnalysis> {
+    let settings = AppSettings::load().unwrap_or_default().language_model;
+    let database = database.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let job = database.enqueue_meeting_analysis(&id)?;
+        database.process_analysis_job(&job.id, &settings)
+    })
+    .await
+    .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
+}
+
 /// Stored media is recorded relative to this directory, so the interface needs it to display a file.
 #[tauri::command]
 fn media_root(database: tauri::State<'_, Database>) -> AppResult<String> {
@@ -530,6 +563,7 @@ async fn test_reminder_sound() -> AppResult<()> {
 #[tauri::command]
 async fn play_recording(
     source: String,
+    start_seconds: Option<f64>,
     database: tauri::State<'_, Database>,
     player: tauri::State<'_, NativeAudioPlayer>,
 ) -> AppResult<()> {
@@ -542,9 +576,11 @@ async fn play_recording(
         base64::engine::general_purpose::STANDARD.encode(database.read_media(&source)?)
     };
     let player = player.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || player.play(&wav_base64))
-        .await
-        .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
+    tauri::async_runtime::spawn_blocking(move || {
+        player.play(&wav_base64, start_seconds.unwrap_or_default())
+    })
+    .await
+    .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
 }
 
 #[tauri::command]
@@ -580,6 +616,7 @@ pub fn run() {
 
             let settings = AppSettings::load().unwrap_or_default();
             let resume_speech = settings.speech.clone();
+            let resume_language_model = settings.language_model.clone();
             tauri::async_runtime::spawn_blocking(move || {
                 if let Ok(connection) = resume_database.connect() {
                     if let Err(error) = transcriptions::recover_interrupted_jobs(&connection) {
@@ -590,6 +627,9 @@ pub fn run() {
                     .resume_transcription_jobs(&resume_speech.model, &resume_speech.language)
                 {
                     eprintln!("Could not resume pending transcriptions: {error}");
+                }
+                if let Err(error) = resume_database.resume_analysis_jobs(&resume_language_model) {
+                    eprintln!("Could not resume pending meeting analyses: {error}");
                 }
             });
             let autostart = app.autolaunch();
@@ -658,6 +698,9 @@ pub fn run() {
             meeting_transcript,
             meeting_transcription_jobs,
             transcribe_meeting,
+            meeting_analysis,
+            meeting_analysis_jobs,
+            analyse_meeting,
             media_root,
             project_language,
             save_data_url,
@@ -679,8 +722,16 @@ pub fn run() {
             play_recording,
             stop_recording_playback
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Threadbox");
+        .build(tauri::generate_context!())
+        .expect("error while building Threadbox")
+        .run(|_app, event| {
+            if matches!(
+                event,
+                tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
+            ) {
+                providers::shutdown_managed_server();
+            }
+        });
 }
 
 pub fn run_native_messaging() -> AppResult<()> {

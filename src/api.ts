@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { readImage } from "@tauri-apps/plugin-clipboard-manager";
 import { setMediaRoot } from "./media";
-import type { AppSettings, ApiProvider, LanguageModelStatus, Meeting, MeetingInput, MeetingTranscript, ModelStatus, Organization, OrganizationMember, Person, ProcessingJob, Project, ProjectDocument, ProjectDocumentInput, ProjectLanguage, ProviderProbe, SpeechModelId, Task, TaskInput, TaskPatch } from "./types";
+import type { AppSettings, ApiProvider, LanguageModelStatus, Meeting, MeetingAnalysis, MeetingInput, MeetingTranscript, ModelStatus, Organization, OrganizationMember, Person, ProcessingJob, Project, ProjectDocument, ProjectDocumentInput, ProjectLanguage, ProviderProbe, SpeechModelId, Task, TaskInput, TaskPatch } from "./types";
 
 const inTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 
@@ -264,6 +264,18 @@ export const api = {
     return invoke<MeetingTranscript>("transcribe_meeting", { id });
   },
 
+  async meetingAnalysis(id: string): Promise<MeetingAnalysis | null> {
+    return invoke<MeetingAnalysis | null>("meeting_analysis", { id });
+  },
+
+  async meetingAnalysisJobs(id: string): Promise<ProcessingJob[]> {
+    return invoke<ProcessingJob[]>("meeting_analysis_jobs", { id });
+  },
+
+  async analyseMeeting(id: string): Promise<MeetingAnalysis> {
+    return invoke<MeetingAnalysis>("analyse_meeting", { id });
+  },
+
   /** Fetched once so the interface can resolve the relative references stored in the database. */
   async loadMediaRoot(): Promise<void> {
     if (!inTauri()) return;
@@ -338,9 +350,9 @@ export const api = {
     if (inTauri()) await invoke<void>("warm_up_audio");
   },
 
-  async playRecording(dataUrl: string): Promise<void> {
+  async playRecording(dataUrl: string, startSeconds = 0): Promise<void> {
     if (!inTauri()) throw new Error("Recording playback is only available in the desktop app.");
-    await invoke<void>("play_recording", { source: dataUrl });
+    await invoke<void>("play_recording", { source: dataUrl, startSeconds });
   },
 
   async openMedia(path: string): Promise<void> {

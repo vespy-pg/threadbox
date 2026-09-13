@@ -278,6 +278,30 @@ export interface MeetingTranscript {
   segments: TranscriptSegment[];
 }
 
+export type MeetingAnalysisItemKind = "decision" | "action_item" | "addressed" | "term_explanation";
+
+export interface MeetingAnalysisItem {
+  id: string;
+  kind: MeetingAnalysisItemKind;
+  title: string;
+  text: string;
+  startMs: number;
+  endMs: number;
+  taskId: string | null;
+}
+
+export interface MeetingAnalysis {
+  id: string;
+  meetingId: string;
+  notes: string;
+  provider: string;
+  model: string;
+  promptVersion: string;
+  createdAt: string;
+  updatedAt: string;
+  items: MeetingAnalysisItem[];
+}
+
 export interface Person {
   id: string;
   displayName: string;

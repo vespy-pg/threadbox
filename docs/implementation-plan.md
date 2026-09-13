@@ -44,7 +44,7 @@ transcripts, and learning from the user's corrections.
 
 ## Status
 
-**Steps 1 to 5 are implemented**, on branch `feature/meeting-agent-domain-foundation`, not merged.
+**Steps 1 to 6 are implemented**, on branch `feature/meeting-agent-domain-foundation`, not merged.
 The application shell has subsequently been reorganised around organisations and projects before
 starting step 4. `information-architecture.md` records the product structure this establishes.
 
@@ -121,9 +121,8 @@ application has not been launched, for the same reason as in step 1.
 - The interface gained a speech section with per-model download, a language model section per provider
   kind with a test button and key management, and a second welcome screen offering both choices once.
 
-The settings for a managed local server, its start command and its idle timeout, are stored and
-nothing supervises a process yet: there is nothing to supervise until analysis makes requests. Stated
-plainly in `model-providers.md` rather than implied to work.
+At this milestone the settings for a managed local server, its start command and idle timeout were
+stored without starting a process. The analysis milestone now owns that lifecycle.
 
 Verified with the same commands as step 2: 47 Rust tests, 31 interface tests, `tsc --noEmit`, clippy
 with `-D warnings`. The graphical application has not been launched, for the same reason as before.
@@ -186,4 +185,27 @@ Verified with clippy using `-D warnings`, 55 Rust tests, 31 interface tests and 
 Physical recognition quality and processing time remain device-level acceptance checks with a real
 downloaded model and meeting recording.
 
-- Steps 6 and 7: not started.
+### Step 6, meeting analysis
+
+- Schema version 8 stores meeting notes and typed decision, user-action, addressed-moment and term
+  explanation artefacts. Every analysis records the provider, model and prompt version that produced
+  it, while every item keeps its source time range.
+- One provider contract now performs real requests through a local OpenAI-compatible endpoint,
+  OpenAI, OpenRouter, another compatible endpoint, Anthropic or a configured agent command. The
+  Meetings surface states which provider will receive the next request before enabling analysis.
+- A managed local model server starts only when needed, runs at reduced scheduling priority and is
+  stopped after its configured idle timeout. Threadbox retains the exact child handle and stops only
+  that child on idle or application exit; it never finds or kills processes by name.
+- Analysis is a persisted job just like transcription. Interrupted work returns to the queue and
+  resumes after the primary application instance starts.
+- The analysis prompt identifies the user, separates their channel from other participants, includes
+  the effective project glossary and forbids invented work. Only action items explicitly assigned to
+  the user become project threads. Reanalysis reuses the linked thread for the same action and source
+  time instead of duplicating it.
+- Notes and artefacts appear below the source transcript. Transcript and analysis timestamps start
+  playback at the relevant moment in the original recording.
+
+Verified with clippy using `-D warnings`, 59 Rust tests, 31 interface tests and `tsc --noEmit`.
+Output quality remains an acceptance check against real meetings and the provider chosen by the user.
+
+- Step 7: not started.

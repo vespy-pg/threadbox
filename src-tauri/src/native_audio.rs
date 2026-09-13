@@ -258,9 +258,9 @@ pub fn play_reminder_sound() -> AppResult<()> {
 }
 
 impl NativeAudioPlayer {
-    pub fn play(&self, wav_base64: &str) -> AppResult<()> {
+    pub fn play(&self, wav_base64: &str, start_seconds: f64) -> AppResult<()> {
         let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
-        play_recording(wav_base64, &self.generation, generation)
+        play_recording(wav_base64, start_seconds, &self.generation, generation)
     }
 
     pub fn stop(&self) {
@@ -270,6 +270,7 @@ impl NativeAudioPlayer {
 
 fn play_recording(
     wav_base64: &str,
+    start_seconds: f64,
     current_generation: &AtomicU64,
     generation: u64,
 ) -> AppResult<()> {
@@ -289,7 +290,7 @@ fn play_recording(
         .map(|sample| sample.map(|value| value as f32 / 32_768.0))
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| audio_error(format!("Could not decode the recording: {error}")))?;
-    let samples = if spec.channels == 2 {
+    let samples: Vec<f32> = if spec.channels == 2 {
         interleaved
             .as_chunks::<2>()
             .0
@@ -302,6 +303,13 @@ fn play_recording(
     if samples.is_empty() {
         return Err(audio_error("The recording is empty"));
     }
+    let start_sample = (start_seconds.max(0.0) * f64::from(spec.sample_rate)) as usize;
+    if start_sample >= samples.len() {
+        return Err(audio_error(
+            "The requested playback timestamp is past the recording",
+        ));
+    }
+    let samples = samples.into_iter().skip(start_sample).collect::<Vec<_>>();
 
     let host = preferred_host()?;
     let device = host

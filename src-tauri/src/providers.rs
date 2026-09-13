@@ -6,7 +6,9 @@
 //! provider reached with the user's own API key, or an agent command line tool they have already
 //! installed and signed in to. `docs/model-providers.md` states why the list is exactly this.
 
-use std::process::Command;
+use std::io::Write;
+use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -27,6 +29,14 @@ pub const KIND_API: &str = "api";
 pub const KIND_AGENT: &str = "agent";
 
 const API_PROVIDERS: [&str; 4] = ["anthropic", "openai", "openrouter", "compatible"];
+
+#[derive(Default)]
+struct ManagedServerState {
+    child: Option<Child>,
+    generation: u64,
+}
+
+static MANAGED_SERVER: OnceLock<Arc<Mutex<ManagedServerState>>> = OnceLock::new();
 
 /// Recognition happens on this machine, so the only decisions are which model and which language.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -161,6 +171,13 @@ pub struct ProviderProbe {
     pub reachable: bool,
     pub detail: String,
     pub models: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CompletionResult {
+    pub provider: String,
+    pub model: String,
+    pub content: String,
 }
 
 pub fn validate_speech(settings: &SpeechSettings) -> AppResult<()> {
@@ -308,6 +325,250 @@ pub fn probe(settings: &LanguageModelSettings) -> AppResult<ProviderProbe> {
             "Choose a language model provider first".into(),
         )),
     }
+}
+
+/// Sends one analysis request through the provider explicitly selected in Settings.
+pub fn complete(
+    settings: &LanguageModelSettings,
+    system_prompt: &str,
+    user_prompt: &str,
+) -> AppResult<CompletionResult> {
+    validate_language_model(settings)?;
+    match settings.kind.as_str() {
+        KIND_LOCAL => {
+            if settings.local.managed {
+                ensure_managed_local_server(settings)?;
+            }
+            let result = complete_openai_compatible(
+                "local",
+                &settings.local.base_url,
+                &settings.local.model,
+                None,
+                system_prompt,
+                user_prompt,
+            );
+            if settings.local.managed {
+                schedule_managed_server_idle_stop(settings.local.idle_timeout_minutes);
+            }
+            result
+        }
+        KIND_API => {
+            let provider = settings.api.provider.as_str();
+            let key =
+                secrets::read(&secrets::language_model_account(provider))?.ok_or_else(|| {
+                    AppError::InvalidInput(format!("No API key is stored for {provider}"))
+                })?;
+            if provider == "anthropic" {
+                complete_anthropic(&settings.api.model, &key, system_prompt, user_prompt)
+            } else {
+                complete_openai_compatible(
+                    provider,
+                    &api_base_url(provider, &settings.api.base_url),
+                    &settings.api.model,
+                    Some(&key),
+                    system_prompt,
+                    user_prompt,
+                )
+            }
+        }
+        KIND_AGENT => complete_agent(settings, system_prompt, user_prompt),
+        _ => Err(AppError::InvalidInput(
+            "Choose a language model provider in Settings before analysing a meeting".into(),
+        )),
+    }
+}
+
+fn managed_server() -> &'static Arc<Mutex<ManagedServerState>> {
+    MANAGED_SERVER.get_or_init(|| Arc::new(Mutex::new(ManagedServerState::default())))
+}
+
+fn ensure_managed_local_server(settings: &LanguageModelSettings) -> AppResult<()> {
+    let state = managed_server();
+    {
+        let mut state = state
+            .lock()
+            .map_err(|_| AppError::InvalidInput("The local model process lock failed".into()))?;
+        let running = state
+            .child
+            .as_mut()
+            .map(|child| child.try_wait().map(|status| status.is_none()))
+            .transpose()?
+            .unwrap_or(false);
+        if !running {
+            state.child = Some(
+                Command::new("sh")
+                    .args([
+                        "-lc",
+                        &format!("exec nice -n 10 {}", settings.local.command),
+                    ])
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()?,
+            );
+        }
+        state.generation = state.generation.wrapping_add(1);
+    }
+    let endpoint = format!("{}/models", settings.local.base_url.trim_end_matches('/'));
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(1))
+        .build()?;
+    for _ in 0..30 {
+        if client
+            .get(&endpoint)
+            .send()
+            .is_ok_and(|response| response.status().is_success())
+        {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    shutdown_managed_server();
+    Err(AppError::InvalidInput(
+        "The managed local model did not become ready within 30 seconds".into(),
+    ))
+}
+
+fn schedule_managed_server_idle_stop(timeout_minutes: u64) {
+    if timeout_minutes == 0 {
+        return;
+    }
+    let state = Arc::clone(managed_server());
+    let generation = match state.lock() {
+        Ok(mut state) => {
+            state.generation = state.generation.wrapping_add(1);
+            state.generation
+        }
+        Err(_) => return,
+    };
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(timeout_minutes.saturating_mul(60)));
+        if let Ok(mut state) = state.lock() {
+            if state.generation == generation {
+                if let Some(mut child) = state.child.take() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+        }
+    });
+}
+
+/// Stops only the exact child process Threadbox started, never a process matched by name.
+pub fn shutdown_managed_server() {
+    let Some(state) = MANAGED_SERVER.get() else {
+        return;
+    };
+    if let Ok(mut state) = state.lock() {
+        if let Some(mut child) = state.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+fn complete_openai_compatible(
+    provider: &str,
+    base_url: &str,
+    model: &str,
+    key: Option<&str>,
+    system_prompt: &str,
+    user_prompt: &str,
+) -> AppResult<CompletionResult> {
+    let endpoint = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(300))
+        .build()?;
+    let mut request = client.post(&endpoint).json(&serde_json::json!({
+        "model": model,
+        "temperature": 0.1,
+        "messages": [
+            { "role": "system", "content": system_prompt },
+            { "role": "user", "content": user_prompt }
+        ]
+    }));
+    if let Some(key) = key {
+        request = request.bearer_auth(key);
+    }
+    let body: Value = request.send()?.error_for_status()?.json()?;
+    let content = body
+        .pointer("/choices/0/message/content")
+        .and_then(Value::as_str)
+        .ok_or_else(|| AppError::InvalidInput("The provider returned no message content".into()))?;
+    Ok(CompletionResult {
+        provider: provider.into(),
+        model: model.into(),
+        content: content.into(),
+    })
+}
+
+fn complete_anthropic(
+    model: &str,
+    key: &str,
+    system_prompt: &str,
+    user_prompt: &str,
+) -> AppResult<CompletionResult> {
+    let body: Value = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(300))
+        .build()?
+        .post("https://api.anthropic.com/v1/messages")
+        .header("x-api-key", key)
+        .header("anthropic-version", "2023-06-01")
+        .json(&serde_json::json!({
+            "model": model,
+            "max_tokens": 4096,
+            "system": system_prompt,
+            "messages": [{ "role": "user", "content": user_prompt }]
+        }))
+        .send()?
+        .error_for_status()?
+        .json()?;
+    let content = body
+        .pointer("/content/0/text")
+        .and_then(Value::as_str)
+        .ok_or_else(|| AppError::InvalidInput("Anthropic returned no message content".into()))?;
+    Ok(CompletionResult {
+        provider: "anthropic".into(),
+        model: model.into(),
+        content: content.into(),
+    })
+}
+
+fn complete_agent(
+    settings: &LanguageModelSettings,
+    system_prompt: &str,
+    user_prompt: &str,
+) -> AppResult<CompletionResult> {
+    let mut child = Command::new(&settings.agent.command)
+        .args(&settings.agent.arguments)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let prompt = format!("{system_prompt}\n\n{user_prompt}");
+    child
+        .stdin
+        .take()
+        .ok_or_else(|| AppError::InvalidInput("The agent command did not accept input".into()))?
+        .write_all(prompt.as_bytes())?;
+    let output = child.wait_with_output()?;
+    if !output.status.success() {
+        return Err(AppError::InvalidInput(format!(
+            "The agent command failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    let content = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if content.is_empty() {
+        return Err(AppError::InvalidInput(
+            "The agent command returned no analysis".into(),
+        ));
+    }
+    Ok(CompletionResult {
+        provider: "agent".into(),
+        model: settings.agent.command.clone(),
+        content,
+    })
 }
 
 fn list_models(base_url: &str, headers: &[(String, String)], success: &str) -> ProviderProbe {
@@ -564,6 +825,24 @@ mod tests {
             api_base_url("compatible", "https://models.example.com/v1/"),
             "https://models.example.com/v1"
         );
+    }
+
+    #[test]
+    fn an_agent_receives_the_prompt_on_standard_input() {
+        let settings = LanguageModelSettings {
+            kind: KIND_AGENT.into(),
+            agent: AgentModelSettings {
+                command: "sh".into(),
+                arguments: vec![
+                    "-c".into(),
+                    "read prompt; printf '{\"notes\":\"%s\",\"items\":[]}' \"$prompt\"".into(),
+                ],
+            },
+            ..Default::default()
+        };
+        let result = complete(&settings, "system", "meeting").unwrap();
+        assert_eq!(result.provider, "agent");
+        assert!(result.content.contains("system"));
     }
 
     #[test]
