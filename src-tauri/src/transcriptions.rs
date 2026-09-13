@@ -12,15 +12,25 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
+    cloud_speech,
     database::Database,
     error::{AppError, AppResult},
     media,
+    providers::{SPEECH_LOCAL, SPEECH_OPENAI},
+    secrets,
     speech::{self, SpeechTranscript},
 };
 
 const JOB_KIND: &str = "meeting_transcription";
 const PROMPT_VERSION: &str = "meeting-vocabulary-v1";
 const PROMPT_CHARACTER_LIMIT: usize = 800;
+
+#[derive(Debug, Clone)]
+pub struct TranscriptionJobConfig {
+    pub provider: String,
+    pub model_id: String,
+    pub language: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -141,8 +151,39 @@ pub(crate) fn recover_interrupted_jobs(connection: &Connection) -> AppResult<()>
     Ok(())
 }
 
+pub(crate) fn migrate_job_configuration(connection: &Connection) -> AppResult<()> {
+    for (name, statement) in [
+        (
+            "provider",
+            "ALTER TABLE processing_jobs ADD COLUMN provider TEXT NOT NULL DEFAULT 'local'",
+        ),
+        (
+            "model_id",
+            "ALTER TABLE processing_jobs ADD COLUMN model_id TEXT NOT NULL DEFAULT 'small'",
+        ),
+        (
+            "language",
+            "ALTER TABLE processing_jobs ADD COLUMN language TEXT NOT NULL DEFAULT 'auto'",
+        ),
+    ] {
+        let exists: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('processing_jobs') WHERE name = ?1)",
+            [name],
+            |row| row.get(0),
+        )?;
+        if !exists {
+            connection.execute(statement, [])?;
+        }
+    }
+    Ok(())
+}
+
 impl Database {
-    pub fn enqueue_meeting_transcription(&self, meeting_id: &str) -> AppResult<ProcessingJob> {
+    pub fn enqueue_meeting_transcription(
+        &self,
+        meeting_id: &str,
+        config: &TranscriptionJobConfig,
+    ) -> AppResult<ProcessingJob> {
         let meeting = self.get_meeting(meeting_id)?;
         if meeting.recording_path.is_none() {
             return Err(AppError::InvalidInput(
@@ -179,14 +220,17 @@ impl Database {
         connection.execute(
             "INSERT INTO processing_jobs
                 (id, meeting_id, kind, status, attempts, error, created_at, started_at,
-                 completed_at, updated_at)
-             VALUES (?1, ?2, ?3, 'queued', 0, NULL, ?4, NULL, NULL, ?5)",
+                 completed_at, updated_at, provider, model_id, language)
+             VALUES (?1, ?2, ?3, 'queued', 0, NULL, ?4, NULL, NULL, ?5, ?6, ?7, ?8)",
             params![
                 job.id,
                 job.meeting_id,
                 JOB_KIND,
                 job.created_at,
-                job.updated_at
+                job.updated_at,
+                config.provider,
+                config.model_id,
+                config.language,
             ],
         )?;
         Ok(job)
@@ -222,14 +266,10 @@ impl Database {
             .transpose()
     }
 
-    pub fn process_transcription_job(
-        &self,
-        job_id: &str,
-        model_id: &str,
-        language: &str,
-    ) -> AppResult<MeetingTranscript> {
+    pub fn process_transcription_job(&self, job_id: &str) -> AppResult<MeetingTranscript> {
         let job = self.claim_job(job_id)?;
-        let result = self.transcribe_meeting(&job.meeting_id, model_id, language);
+        let config = self.transcription_job_config(job_id)?;
+        let result = self.transcribe_meeting(&job.meeting_id, &config);
         match result {
             Ok(transcript) => {
                 self.finish_job(job_id, None)?;
@@ -242,7 +282,7 @@ impl Database {
         }
     }
 
-    pub fn resume_transcription_jobs(&self, model_id: &str, language: &str) -> AppResult<()> {
+    pub fn resume_transcription_jobs(&self) -> AppResult<()> {
         let connection = self.connect()?;
         let mut statement = connection.prepare(
             "SELECT id FROM processing_jobs
@@ -254,7 +294,7 @@ impl Database {
         drop(statement);
         drop(connection);
         for id in ids {
-            if let Err(error) = self.process_transcription_job(&id, model_id, language) {
+            if let Err(error) = self.process_transcription_job(&id) {
                 eprintln!("Could not resume transcription job {id}: {error}");
             }
         }
@@ -300,11 +340,27 @@ impl Database {
         Ok(())
     }
 
+    fn transcription_job_config(&self, job_id: &str) -> AppResult<TranscriptionJobConfig> {
+        self.connect()?
+            .query_row(
+                "SELECT provider, model_id, language FROM processing_jobs
+                 WHERE id = ?1 AND kind = ?2",
+                params![job_id, JOB_KIND],
+                |row| {
+                    Ok(TranscriptionJobConfig {
+                        provider: row.get(0)?,
+                        model_id: row.get(1)?,
+                        language: row.get(2)?,
+                    })
+                },
+            )
+            .map_err(Into::into)
+    }
+
     fn transcribe_meeting(
         &self,
         meeting_id: &str,
-        model_id: &str,
-        language: &str,
+        config: &TranscriptionJobConfig,
     ) -> AppResult<MeetingTranscript> {
         let meeting = self.get_meeting(meeting_id)?;
         let reference = meeting.recording_path.ok_or_else(|| {
@@ -318,14 +374,65 @@ impl Database {
                     .map(|value| value.language)
             })
             .transpose()?
-            .unwrap_or_else(|| language.to_string());
+            .unwrap_or_else(|| config.language.to_string());
         let bytes = fs::read(media::resolve(&self.media_root(), &reference)?)?;
         let prompt = self.meeting_vocabulary_prompt(meeting.project_id.as_deref())?;
-        let microphone =
-            speech::transcribe_wav_bytes(&bytes, model_id, &language, Some(0), prompt.as_deref())?;
-        let system =
-            speech::transcribe_wav_bytes(&bytes, model_id, &language, Some(1), prompt.as_deref())?;
-        self.replace_transcript(meeting_id, model_id, microphone, system)
+        let (microphone, system) = match config.provider.as_str() {
+            SPEECH_LOCAL => (
+                speech::transcribe_wav_bytes(
+                    &bytes,
+                    &config.model_id,
+                    &language,
+                    Some(0),
+                    prompt.as_deref(),
+                )?,
+                speech::transcribe_wav_bytes(
+                    &bytes,
+                    &config.model_id,
+                    &language,
+                    Some(1),
+                    prompt.as_deref(),
+                )?,
+            ),
+            SPEECH_OPENAI => {
+                let key =
+                    secrets::read(&secrets::speech_account(SPEECH_OPENAI))?.ok_or_else(|| {
+                        AppError::InvalidInput(
+                        "Add an OpenAI speech API key in Settings before using cloud transcription"
+                            .into(),
+                    )
+                    })?;
+                (
+                    cloud_speech::transcribe_openai_wav_channel(
+                        &bytes,
+                        &config.model_id,
+                        &language,
+                        0,
+                        prompt.as_deref(),
+                        &key,
+                    )?,
+                    cloud_speech::transcribe_openai_wav_channel(
+                        &bytes,
+                        &config.model_id,
+                        &language,
+                        1,
+                        prompt.as_deref(),
+                        &key,
+                    )?,
+                )
+            }
+            provider => {
+                return Err(AppError::InvalidInput(format!(
+                    "Unknown speech provider: {provider}"
+                )))
+            }
+        };
+        self.replace_transcript(
+            meeting_id,
+            &format!("{}/{}", config.provider, config.model_id),
+            microphone,
+            system,
+        )
     }
 
     fn replace_transcript(
@@ -531,14 +638,30 @@ mod tests {
         meeting.id
     }
 
+    fn local_config() -> TranscriptionJobConfig {
+        TranscriptionJobConfig {
+            provider: SPEECH_LOCAL.into(),
+            model_id: "small".into(),
+            language: "auto".into(),
+        }
+    }
+
     #[test]
     fn persists_and_deduplicates_queued_jobs() {
         let database = database();
         let meeting_id = recorded_meeting(&database);
-        let first = database.enqueue_meeting_transcription(&meeting_id).unwrap();
-        let second = database.enqueue_meeting_transcription(&meeting_id).unwrap();
+        let first = database
+            .enqueue_meeting_transcription(&meeting_id, &local_config())
+            .unwrap();
+        let second = database
+            .enqueue_meeting_transcription(&meeting_id, &local_config())
+            .unwrap();
         assert_eq!(first.id, second.id);
         assert_eq!(database.list_meeting_jobs(&meeting_id).unwrap().len(), 1);
+        let config = database.transcription_job_config(&first.id).unwrap();
+        assert_eq!(config.provider, SPEECH_LOCAL);
+        assert_eq!(config.model_id, "small");
+        assert_eq!(config.language, "auto");
     }
 
     #[test]
@@ -574,7 +697,9 @@ mod tests {
     fn returns_interrupted_jobs_to_the_queue_on_launch() {
         let database = database();
         let meeting_id = recorded_meeting(&database);
-        let job = database.enqueue_meeting_transcription(&meeting_id).unwrap();
+        let job = database
+            .enqueue_meeting_transcription(&meeting_id, &local_config())
+            .unwrap();
         database
             .connect()
             .unwrap()

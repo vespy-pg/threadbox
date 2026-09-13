@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Check, Download, KeyRound, LoaderCircle, ShieldCheck, Trash2, Zap } from "lucide-react";
 
 import { api } from "./api";
-import type { ApiModelSettings, ApiProvider, AppSettings, LanguageModelKind, LanguageModelSettings, LanguageModelStatus, LocalModelSettings, ModelStatus, ProviderProbe, SpeechModelId, SpeechSettings } from "./types";
+import type { ApiModelSettings, ApiProvider, AppSettings, LanguageModelKind, LanguageModelSettings, LanguageModelStatus, LocalModelSettings, ModelStatus, ProviderProbe, SpeechCloudStatus, SpeechModelId, SpeechSettings } from "./types";
 
 /** Enough of the common cases to choose from, with detection first because it is the default. */
 export const speechLanguages: Array<{ value: string; label: string }> = [
@@ -41,10 +41,15 @@ function useDraft<T>(value: T): [T, (next: T) => void] {
 export function SpeechProviderSettings({ settings, onChange, onError }: { settings: SpeechSettings; onChange: (patch: Partial<SpeechSettings>) => void; onError: (message: string) => void }) {
   const [models, setModels] = useState<ModelStatus[]>([]);
   const [downloading, setDownloading] = useState<SpeechModelId | null>(null);
+  const [cloudStatus, setCloudStatus] = useState<SpeechCloudStatus | null>(null);
+  const [keyDraft, setKeyDraft] = useState("");
+  const [savingKey, setSavingKey] = useState(false);
 
   const reload = useCallback(async () => {
     try {
-      setModels(await api.speechModels());
+      const [nextModels, nextCloudStatus] = await Promise.all([api.speechModels(), api.speechCloudStatus()]);
+      setModels(nextModels);
+      setCloudStatus(nextCloudStatus);
     } catch (reason) {
       onError(String(reason));
     }
@@ -66,7 +71,35 @@ export function SpeechProviderSettings({ settings, onChange, onError }: { settin
 
   const selected = models.find((model) => model.id === settings.model);
 
+  async function saveCloudKey() {
+    try {
+      setSavingKey(true);
+      setCloudStatus(await api.setSpeechCloudKey(keyDraft));
+      setKeyDraft("");
+    } catch (reason) {
+      onError(String(reason));
+    } finally {
+      setSavingKey(false);
+    }
+  }
+
+  async function deleteCloudKey() {
+    try {
+      setSavingKey(true);
+      setCloudStatus(await api.deleteSpeechCloudKey());
+      setKeyDraft("");
+      if (settings.provider === "openai") onChange({ provider: "local" });
+    } catch (reason) {
+      onError(String(reason));
+    } finally {
+      setSavingKey(false);
+    }
+  }
+
   return <>
+    <label className="setting-select"><span>Default for meeting recordings</span><select value={settings.provider} onChange={(event) => onChange({ provider: event.target.value as SpeechSettings["provider"] })}><option value="local">Local - audio stays on this computer</option><option value="openai" disabled={!cloudStatus?.configured}>OpenAI cloud - audio is uploaded</option></select></label>
+    <p className="setting-note">This only preselects the meeting control. Threadbox records the privacy choice on each transcription job before processing starts.</p>
+    <h4 className="provider-subheading">Local recognition</h4>
     <label className="setting-select"><span>Model for meetings</span><select value={settings.model} onChange={(event) => onChange({ model: event.target.value as SpeechModelId })}>{models.map((model) => <option key={model.id} value={model.id}>{model.label}{model.installed ? "" : ` - not downloaded, ${gigabytes(model.approximateBytes)}`}</option>)}</select></label>
     {selected && <p className="setting-note">{selected.note}</p>}
     <div className="model-list">
@@ -79,6 +112,14 @@ export function SpeechProviderSettings({ settings, onChange, onError }: { settin
     <label className="setting-select"><span>Spoken language</span><select value={settings.language} onChange={(event) => onChange({ language: event.target.value })}>{speechLanguages.map((language) => <option key={language.value} value={language.value}>{language.label}</option>)}</select></label>
     <label className="setting-select"><span>Terminology language</span><select value={settings.terminologyLanguage ?? ""} onChange={(event) => onChange({ terminologyLanguage: event.target.value || null })}><option value="">Same as spoken</option>{speechLanguages.filter((language) => language.value !== "auto").map((language) => <option key={language.value} value={language.value}>{language.label}</option>)}</select></label>
     <p className="setting-note">Set this when meetings are held in one language about terminology written in another. A project can override both.</p>
+    <h4 className="provider-subheading">OpenAI cloud recognition</h4>
+    <p className="setting-note">Cloud transcription uploads audio only when you explicitly choose it for a meeting. The API key is stored in the operating system credential store. Threadbox uses {settings.cloudModel} because it returns timestamped segments.</p>
+    <label className="setting-select"><span>API key</span><input type="password" value={keyDraft} onChange={(event) => setKeyDraft(event.target.value)} placeholder={cloudStatus?.keyPresent ? "A key is stored" : "Paste your OpenAI API key"} autoComplete="off" /></label>
+    <div className="provider-actions">
+      <button type="button" className="secondary-button" disabled={savingKey || !keyDraft.trim()} onClick={() => void saveCloudKey()}>{savingKey ? <LoaderCircle size={14} className="spin" /> : <KeyRound size={14} />}{cloudStatus?.keyPresent ? "Replace key" : "Store key"}</button>
+      {cloudStatus?.keyPresent && <button type="button" className="text-button danger" disabled={savingKey} onClick={() => void deleteCloudKey()}><Trash2 size={14} />Remove key</button>}
+      {cloudStatus?.keyPresent && <span className="model-ready"><ShieldCheck size={14} />Ready</span>}
+    </div>
   </>;
 }
 
@@ -203,7 +244,7 @@ export function ProviderSetup({ settings, onChange, onError }: { settings: AppSe
   return <div className="provider-setup">
     <section>
       <h3>Speech recognition</h3>
-      <p>Audio never leaves this computer. Pick a model now or download one later from Settings.</p>
+      <p>Choose local processing for maximum privacy or configure cloud processing for speed and convenience. Every meeting keeps its own choice.</p>
       <SpeechProviderSettings settings={settings.speech} onChange={(patch) => onChange({ speech: { ...settings.speech, ...patch } })} onError={onError} />
     </section>
     <section>

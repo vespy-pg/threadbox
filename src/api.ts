@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { readImage } from "@tauri-apps/plugin-clipboard-manager";
 import { setMediaRoot } from "./media";
-import type { AppSettings, ApiProvider, LanguageModelStatus, Meeting, MeetingAnalysis, MeetingInput, MeetingTranscript, ModelStatus, Organization, OrganizationMember, Person, ProcessingJob, Project, ProjectDocument, ProjectDocumentInput, ProjectLanguage, ProviderProbe, SpeechModelId, Task, TaskInput, TaskPatch, VocabularyCandidate, VocabularySet, VocabularySetInput, VocabularyTerm, VocabularyTermInput } from "./types";
+import type { AppSettings, ApiProvider, LanguageModelStatus, Meeting, MeetingAnalysis, MeetingInput, MeetingTranscript, ModelStatus, Organization, OrganizationMember, Person, ProcessingJob, Project, ProjectDocument, ProjectDocumentInput, ProjectLanguage, ProviderProbe, SpeechCloudStatus, SpeechModelId, SpeechProvider, Task, TaskInput, TaskPatch, VocabularyCandidate, VocabularySet, VocabularySetInput, VocabularyTerm, VocabularyTermInput } from "./types";
 
 const inTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 
@@ -20,7 +20,7 @@ const browserSettings: AppSettings = {
   clockFormat: "24h",
   audioInputMode: "microphone",
   taskRetentionDays: 7,
-  speech: { model: "small", language: "auto", terminologyLanguage: null },
+  speech: { provider: "local", model: "small", language: "auto", terminologyLanguage: null, cloudModel: "whisper-1" },
   languageModel: {
     kind: "unset",
     local: { baseUrl: "http://127.0.0.1:11434/v1", model: "", managed: false, command: "", idleTimeoutMinutes: 10 },
@@ -260,8 +260,8 @@ export const api = {
     return invoke<ProcessingJob[]>("meeting_transcription_jobs", { id });
   },
 
-  async transcribeMeeting(id: string): Promise<MeetingTranscript> {
-    return invoke<MeetingTranscript>("transcribe_meeting", { id });
+  async transcribeMeeting(id: string, provider?: SpeechProvider): Promise<MeetingTranscript> {
+    return invoke<MeetingTranscript>("transcribe_meeting", { id, provider: provider ?? null });
   },
 
   async meetingAnalysis(id: string): Promise<MeetingAnalysis | null> {
@@ -335,8 +335,21 @@ export const api = {
   },
 
   /** Without a model this is a voice note, which the desktop side always transcribes with the small model. */
-  async transcribeWav(wavBase64: string, model?: SpeechModelId, language?: string): Promise<string> {
-    return invoke<string>("transcribe_wav", { wavBase64, model: model ?? null, language: language ?? null });
+  async transcribeWav(wavBase64: string, model?: SpeechModelId, language?: string, provider: SpeechProvider = "local"): Promise<string> {
+    return invoke<string>("transcribe_wav", { wavBase64, model: model ?? null, language: language ?? null, provider });
+  },
+
+  async speechCloudStatus(): Promise<SpeechCloudStatus> {
+    if (inTauri()) return invoke<SpeechCloudStatus>("speech_cloud_status");
+    return { provider: "openai", model: "whisper-1", configured: false, keyPresent: false };
+  },
+
+  async setSpeechCloudKey(key: string): Promise<SpeechCloudStatus> {
+    return invoke<SpeechCloudStatus>("set_speech_cloud_key", { provider: "openai", key });
+  },
+
+  async deleteSpeechCloudKey(): Promise<SpeechCloudStatus> {
+    return invoke<SpeechCloudStatus>("delete_speech_cloud_key", { provider: "openai" });
   },
 
   /** What will answer the next analysis request. Shown before anything is sent. */

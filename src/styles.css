@@ -189,6 +189,8 @@ button.metric-card:hover { border-color: #a9c7b7; transform: translateY(-1px); }
 .meeting-recording-banner button { display: inline-flex; align-items: center; gap: 6px; min-height: 33px; padding: 0 10px; border: 1px solid rgba(255,255,255,.4); border-radius: 8px; color: white; background: rgba(255,255,255,.1); cursor: pointer; font-size: 10px; font-weight: 700; }.meeting-recording-banner button:disabled { opacity: .6; }
 .meeting-transcript { grid-column: 1 / -1; margin-top: 12px; padding: 14px; border: 1px solid #dce5df; border-radius: 10px; background: #f7faf8; }
 .meeting-transcript-heading { display: flex; gap: 14px; align-items: center; justify-content: space-between; }.meeting-transcript-heading div { display: grid; gap: 3px; }.meeting-transcript-heading small { color: var(--muted); }
+.meeting-transcript-heading .transcription-actions { display: flex; grid-auto-flow: column; align-items: center; gap: 7px; }
+.transcription-actions select { min-height: 34px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: white; font-size: 10px; }
 .transcription-state { color: var(--green); font-size: 11px; font-weight: 700; }.transcription-error { margin: 10px 0 0; color: #a43d37; font-size: 11px; }.transcript-empty { margin: 12px 0 0; color: var(--muted); font-size: 11px; }
 .transcript-segments { display: grid; gap: 8px; margin-top: 14px; max-height: 300px; overflow-y: auto; }
 .transcript-segment { display: grid; grid-template-columns: 44px 48px minmax(0, 1fr); gap: 9px; align-items: start; padding: 9px 10px; border-radius: 8px; background: white; }.transcript-segment.system { background: #f0f4f2; }
@@ -438,6 +440,8 @@ blockquote { margin: 8px 0 0; padding-left: 12px; border-left: 2px solid #a9c8b9
 .audio-attachment-label { display: flex; min-width: 0; align-items: center; gap: 9px; }
 .audio-transcribing { display: inline-flex; align-items: center; gap: 4px; color: var(--green-dark); font-weight: 700; white-space: nowrap; }
 .audio-transcribing svg { animation: audio-spinner .85s linear infinite; }
+.audio-capture-options { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.privacy-disclosure { color: #8a562c !important; }
 @keyframes audio-spinner { to { transform: rotate(360deg); } }
 .play-attachment { display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; color: var(--green-dark); background: white; cursor: pointer; font-size: 10px; font-weight: 700; }
 .play-attachment:disabled { opacity: .55; cursor: wait; }
@@ -531,10 +535,12 @@ blockquote { margin: 8px 0 0; padding-left: 12px; border-left: 2px solid #a9c8b9
 .probe-failed { color: #923f32; font-size: 11px; font-weight: 600; }
 .key-row { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
 .key-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.provider-actions { display: flex; align-items: center; gap: 9px; margin-top: 10px; flex-wrap: wrap; }
 .provider-setup { margin: 4px 0 0; text-align: left; }
 .provider-setup section { padding: 16px 0; border-top: 1px solid var(--line); }
 .provider-setup h3 { margin-bottom: 5px; font-size: 14px; }
 .provider-setup p { margin-bottom: 10px; color: var(--muted); line-height: 1.5; font-size: 12px; }
+.provider-subheading { margin: 18px 0 8px; color: var(--ink); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
 .welcome-providers { max-height: calc(100vh - 40px); overflow-y: auto; }
 .welcome-actions { display: flex; gap: 9px; }
 .spin { animation: spin 1s linear infinite; }

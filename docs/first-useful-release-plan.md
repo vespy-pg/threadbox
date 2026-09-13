@@ -2,6 +2,9 @@
 
 Status: approved product direction and implementation plan, recorded on 2026-09-14.
 
+Implementation progress: Milestone 0 is implemented. Milestone 1 is implemented in code and awaits
+one credentialed OpenAI smoke test plus the Windows CI rerun before it is accepted as complete.
+
 ## Release outcome
 
 The first useful Threadbox release must turn meetings, email and calendars into project work without
@@ -88,8 +91,12 @@ Before upload, the interface shows the provider and the recording being sent. Cl
 never an automatic fallback after local transcription fails. An API credential is stored in the
 operating system keyring, and temporary request files are deleted after completion.
 
-The first implementation should support recorded files. Live streaming transcription is a separate
-latency-sensitive feature and is not required for this release.
+The first implementation supports recorded files and uses OpenAI `whisper-1`, because it supplies the
+segment timestamps required by Threadbox source transcripts. Each stereo recording is split into
+microphone and system tracks before upload. Each track is divided into ten-minute mono WAV chunks that
+stay below the [provider's 25 MB file limit](https://developers.openai.com/api/docs/guides/speech-to-text),
+and returned timestamps are placed back on the original meeting timeline. Live streaming
+transcription is a separate latency-sensitive feature and is not required for this release.
 
 ## Mail integration
 
@@ -176,6 +183,10 @@ if the framework can technically start on some of them.
 
 ### Milestone 0: contracts and portability gate
 
+Implementation: shared schema, capability enforcement, target-specific dependencies and the Windows
+workflow are in place. The first Windows run found the missing `.ico` resource; that resource is now
+included and the gate must pass on the next pushed revision.
+
 - Define provider-neutral speech, mail and calendar contracts.
 - Add integration, capability, external-object, sync-cursor and external-action schema migrations.
 - Separate the current Linux-only screenshot, audio and keyring dependencies by target.
@@ -185,6 +196,11 @@ Acceptance: Linux behaviour is unchanged, the core compiles on Windows, and no p
 the capability records.
 
 ### Milestone 1: local and cloud speech-to-text
+
+Implementation: local and OpenAI cloud paths, separate credential storage, chunked two-track uploads,
+explicit controls for meetings and voice notes, persisted job provider/model/language, restart-safe
+resumption and transcript provenance are in place. Automated parser, chunking, migration and local
+regression tests pass. A real cloud request is intentionally pending until a user API key is supplied.
 
 - Preserve local whisper.cpp as the default.
 - Add a cloud speech provider and provider-specific settings.

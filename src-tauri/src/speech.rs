@@ -177,25 +177,8 @@ pub fn transcribe_wav_bytes(
             model.label
         )));
     }
-    let mut reader = hound::WavReader::new(Cursor::new(bytes))?;
-    let spec = reader.spec();
-    if spec.sample_rate != 16_000 || !matches!(spec.channels, 1 | 2) {
-        return Err(AppError::InvalidInput(
-            "Threadbox expects 16 kHz mono or stereo audio".into(),
-        ));
-    }
-    let selected_channel = channel.unwrap_or(0);
-    if selected_channel >= spec.channels as usize {
-        return Err(AppError::InvalidInput(
-            "The requested audio channel does not exist".into(),
-        ));
-    }
-    let samples = reader
-        .samples::<i16>()
-        .collect::<Result<Vec<_>, _>>()?
+    let samples = channel_samples(bytes, channel.unwrap_or(0))?
         .into_iter()
-        .skip(selected_channel)
-        .step_by(spec.channels as usize)
         .map(|sample| sample as f32 / i16::MAX as f32)
         .collect::<Vec<_>>();
     let context = WhisperContext::new_with_params(&model.path, WhisperContextParameters::default())
@@ -255,6 +238,65 @@ pub fn transcribe_wav_bytes(
     })
 }
 
+/// Extracts one channel from Threadbox's recording format. Kept in one place so local and cloud
+/// recognition enforce exactly the same input contract.
+pub(crate) fn channel_samples(bytes: &[u8], selected_channel: usize) -> AppResult<Vec<i16>> {
+    let mut reader = hound::WavReader::new(Cursor::new(bytes))?;
+    let spec = reader.spec();
+    if spec.sample_rate != 16_000
+        || !matches!(spec.channels, 1 | 2)
+        || spec.bits_per_sample != 16
+        || spec.sample_format != hound::SampleFormat::Int
+    {
+        return Err(AppError::InvalidInput(
+            "Threadbox expects 16 kHz 16-bit mono or stereo WAV audio".into(),
+        ));
+    }
+    if selected_channel >= spec.channels as usize {
+        return Err(AppError::InvalidInput(
+            "The requested audio channel does not exist".into(),
+        ));
+    }
+    Ok(reader
+        .samples::<i16>()
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .skip(selected_channel)
+        .step_by(spec.channels as usize)
+        .collect())
+}
+
+/// Produces timestamped mono chunks that stay below the cloud API's 25 MB upload limit. Ten minutes
+/// of 16 kHz PCM is about 19.2 MB including its WAV header.
+pub(crate) fn mono_wav_chunks(
+    bytes: &[u8],
+    selected_channel: usize,
+) -> AppResult<Vec<(i64, Vec<u8>)>> {
+    const SAMPLES_PER_CHUNK: usize = 16_000 * 60 * 10;
+    let samples = channel_samples(bytes, selected_channel)?;
+    samples
+        .chunks(SAMPLES_PER_CHUNK)
+        .enumerate()
+        .map(|(index, chunk)| {
+            let mut cursor = Cursor::new(Vec::new());
+            {
+                let spec = hound::WavSpec {
+                    channels: 1,
+                    sample_rate: 16_000,
+                    bits_per_sample: 16,
+                    sample_format: hound::SampleFormat::Int,
+                };
+                let mut writer = hound::WavWriter::new(&mut cursor, spec)?;
+                for sample in chunk {
+                    writer.write_sample(*sample)?;
+                }
+                writer.finalize()?;
+            }
+            Ok(((index * SAMPLES_PER_CHUNK / 16) as i64, cursor.into_inner()))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -277,5 +319,33 @@ mod tests {
     fn an_unknown_model_is_rejected_rather_than_defaulted() {
         assert!(status("enormous").is_err());
         assert!(status(DEFAULT_MODEL).is_ok());
+    }
+
+    #[test]
+    fn cloud_chunks_are_mono_and_keep_their_timeline_offset() {
+        let mut cursor = Cursor::new(Vec::new());
+        {
+            let mut writer = hound::WavWriter::new(
+                &mut cursor,
+                hound::WavSpec {
+                    channels: 2,
+                    sample_rate: 16_000,
+                    bits_per_sample: 16,
+                    sample_format: hound::SampleFormat::Int,
+                },
+            )
+            .unwrap();
+            for index in 0..32_000 {
+                writer.write_sample(index as i16).unwrap();
+                writer.write_sample(-(index as i16)).unwrap();
+            }
+            writer.finalize().unwrap();
+        }
+        let chunks = mono_wav_chunks(&cursor.into_inner(), 1).unwrap();
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].0, 0);
+        let reader = hound::WavReader::new(Cursor::new(&chunks[0].1)).unwrap();
+        assert_eq!(reader.spec().channels, 1);
+        assert_eq!(reader.duration(), 32_000);
     }
 }

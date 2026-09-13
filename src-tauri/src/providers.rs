@@ -38,10 +38,19 @@ struct ManagedServerState {
 
 static MANAGED_SERVER: OnceLock<Arc<Mutex<ManagedServerState>>> = OnceLock::new();
 
-/// Recognition happens on this machine, so the only decisions are which model and which language.
+pub const SPEECH_LOCAL: &str = "local";
+pub const SPEECH_OPENAI: &str = "openai";
+pub const OPENAI_SPEECH_MODEL: &str = "whisper-1";
+
+/// Speech can stay on this machine or be sent to a cloud provider for the selected job. The API key
+/// remains in the operating system credential store.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SpeechSettings {
+    /// The preselected option in meeting controls. Every job persists its own choice before work
+    /// starts, so changing this setting cannot change the privacy boundary of queued work.
+    #[serde(default = "default_speech_provider")]
+    pub provider: String,
     /// Model used for meetings and other long material. Voice notes always use the small model, so
     /// that capturing a thought does not become slow when a larger model is chosen here.
     #[serde(default = "default_speech_model")]
@@ -53,14 +62,20 @@ pub struct SpeechSettings {
     /// normal case for technical work in another language. `None` means the same as `language`.
     #[serde(default)]
     pub terminology_language: Option<String>,
+    /// `whisper-1` is used initially because it preserves segment timestamps. The field is persisted
+    /// so another timestamp-capable cloud model can be introduced without a settings migration.
+    #[serde(default = "default_cloud_speech_model")]
+    pub cloud_model: String,
 }
 
 impl Default for SpeechSettings {
     fn default() -> Self {
         Self {
+            provider: default_speech_provider(),
             model: default_speech_model(),
             language: default_speech_language(),
             terminology_language: None,
+            cloud_model: default_cloud_speech_model(),
         }
     }
 }
@@ -181,6 +196,12 @@ pub struct CompletionResult {
 }
 
 pub fn validate_speech(settings: &SpeechSettings) -> AppResult<()> {
+    if ![SPEECH_LOCAL, SPEECH_OPENAI].contains(&settings.provider.as_str()) {
+        return Err(AppError::InvalidInput(format!(
+            "Unknown speech provider: {}",
+            settings.provider
+        )));
+    }
     if !speech::models()
         .iter()
         .any(|model| model.id == settings.model)
@@ -193,6 +214,12 @@ pub fn validate_speech(settings: &SpeechSettings) -> AppResult<()> {
     validate_speech_language(&settings.language)?;
     if let Some(language) = settings.terminology_language.as_deref() {
         validate_speech_language(language)?;
+    }
+    if settings.cloud_model != OPENAI_SPEECH_MODEL {
+        return Err(AppError::InvalidInput(format!(
+            "Unknown cloud speech model: {}",
+            settings.cloud_model
+        )));
     }
     Ok(())
 }
@@ -708,8 +735,16 @@ fn default_speech_model() -> String {
     speech::DEFAULT_MODEL.into()
 }
 
+fn default_speech_provider() -> String {
+    SPEECH_LOCAL.into()
+}
+
 fn default_speech_language() -> String {
     "auto".into()
+}
+
+fn default_cloud_speech_model() -> String {
+    OPENAI_SPEECH_MODEL.into()
 }
 
 fn default_language_model_kind() -> String {

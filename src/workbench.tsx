@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight, BookOpen, BriefcaseBusiness, CalendarDays, Check
 
 import { api } from "./api";
 import { ProjectDetail, projectPath, type Workspace } from "./projects";
-import type { LanguageModelStatus, Meeting, MeetingAnalysis, MeetingTranscript, Organization, OrganizationMember, Person, ProcessingJob, Project, Task, TranscriptSegment, VocabularyCandidate, VocabularySet, VocabularyTerm } from "./types";
+import type { LanguageModelStatus, Meeting, MeetingAnalysis, MeetingTranscript, Organization, OrganizationMember, Person, ProcessingJob, Project, SpeechCloudStatus, SpeechProvider, Task, TranscriptSegment, VocabularyCandidate, VocabularySet, VocabularyTerm } from "./types";
 
 export type WorkbenchArea = "organization-overview" | "projects" | "people" | "integrations" | "project-overview" | "threads" | "meetings" | "documents" | "communication" | "vocabulary";
 
@@ -337,23 +337,29 @@ function MeetingTranscriptPanel({ meeting, onTasksChanged, onError }: { meeting:
   const [analysis, setAnalysis] = useState<MeetingAnalysis | null>(null);
   const [analysisJobs, setAnalysisJobs] = useState<ProcessingJob[]>([]);
   const [modelStatus, setModelStatus] = useState<LanguageModelStatus | null>(null);
+  const [cloudSpeechStatus, setCloudSpeechStatus] = useState<SpeechCloudStatus | null>(null);
+  const [speechProvider, setSpeechProvider] = useState<SpeechProvider>("local");
   const [processing, setProcessing] = useState(false);
   const [analysing, setAnalysing] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [nextTranscript, nextJobs, nextAnalysis, nextAnalysisJobs, nextModelStatus] = await Promise.all([
+      const [nextTranscript, nextJobs, nextAnalysis, nextAnalysisJobs, nextModelStatus, nextSettings, nextCloudSpeechStatus] = await Promise.all([
         api.meetingTranscript(meeting.id),
         api.meetingTranscriptionJobs(meeting.id),
         api.meetingAnalysis(meeting.id),
         api.meetingAnalysisJobs(meeting.id),
         api.languageModelStatus(),
+        api.getSettings(),
+        api.speechCloudStatus(),
       ]);
       setTranscript(nextTranscript);
       setJobs(nextJobs);
       setAnalysis(nextAnalysis);
       setAnalysisJobs(nextAnalysisJobs);
       setModelStatus(nextModelStatus);
+      setCloudSpeechStatus(nextCloudSpeechStatus);
+      setSpeechProvider(nextSettings.speech.provider === "openai" && !nextCloudSpeechStatus.configured ? "local" : nextSettings.speech.provider);
     } catch (reason) {
       onError(String(reason));
     }
@@ -369,7 +375,7 @@ function MeetingTranscriptPanel({ meeting, onTasksChanged, onError }: { meeting:
   async function transcribe() {
     setProcessing(true);
     try {
-      setTranscript(await api.transcribeMeeting(meeting.id));
+      setTranscript(await api.transcribeMeeting(meeting.id, speechProvider));
       await load();
     } catch (reason) {
       onError(String(reason));
@@ -397,10 +403,10 @@ function MeetingTranscriptPanel({ meeting, onTasksChanged, onError }: { meeting:
   const latestAnalysisJob = analysisJobs[0] ?? null;
   const analysisStale = Boolean(transcript && analysis && new Date(transcript.updatedAt).getTime() > new Date(analysis.updatedAt).getTime());
   return <section className="meeting-transcript">
-    <div className="meeting-transcript-heading"><div><strong>Source transcript</strong><small>{transcript ? `Microphone: ${transcript.microphoneLanguage} - system: ${transcript.systemLanguage} - ${transcript.modelId}` : "Timestamped microphone and system channels are stored separately."}</small></div>{!processing && latestJob?.status !== "running" && <button className="secondary-button" onClick={() => void transcribe()}>{transcript ? "Transcribe again" : latestJob?.status === "failed" ? "Retry transcription" : "Transcribe recording"}</button>}{(processing || latestJob?.status === "running" || latestJob?.status === "queued") && <span className="transcription-state">Processing...</span>}</div>
+    <div className="meeting-transcript-heading"><div><strong>Source transcript</strong><small>{transcript ? `Microphone: ${transcript.microphoneLanguage} - system: ${transcript.systemLanguage} - ${transcript.modelId}` : "Timestamped microphone and system channels are stored separately."}</small><small>{speechProvider === "local" ? "Local: audio stays on this computer." : "OpenAI cloud: this recording will be uploaded."}</small></div>{!processing && latestJob?.status !== "running" && <div className="transcription-actions"><select aria-label="Transcription privacy" value={speechProvider} onChange={(event) => setSpeechProvider(event.target.value as SpeechProvider)}><option value="local">Local</option><option value="openai" disabled={!cloudSpeechStatus?.configured}>OpenAI cloud</option></select><button className="secondary-button" onClick={() => void transcribe()}>{transcript ? "Transcribe again" : latestJob?.status === "failed" ? "Retry transcription" : "Transcribe recording"}</button></div>}{(processing || latestJob?.status === "running" || latestJob?.status === "queued") && <span className="transcription-state">Processing...</span>}</div>
     {latestJob?.status === "failed" && <p className="transcription-error">{latestJob.error}</p>}
     {transcript && <div className="transcript-segments">{transcript.segments.map((segment) => <div className={`transcript-segment ${segment.channel}`} key={segment.id}><button title="Play from this timestamp" onClick={() => void api.playRecording(meeting.recordingPath!, segment.startMs / 1_000).catch((reason) => onError(String(reason)))}>{formatTranscriptTime(segment.startMs)}</button><span>{segment.channel === "microphone" ? "You" : "Others"}</span><TranscriptSegmentText segment={segment} onSaved={load} onError={onError} /></div>)}</div>}
-    {!transcript && latestJob?.status !== "failed" && !processing && <p className="transcript-empty">No transcript yet. Threadbox will use the configured meeting model and project language.</p>}
+    {!transcript && latestJob?.status !== "failed" && !processing && <p className="transcript-empty">No transcript yet. Choose the privacy boundary above; Threadbox will use the project language and keep that choice with the queued job.</p>}
     {transcript && <section className="meeting-analysis"><div className="meeting-analysis-heading"><div><strong>Meeting assistant</strong><small>{analysis ? `${analysis.provider} - ${analysis.model} - ${analysis.promptVersion}` : "Notes, decisions, your action items and moments addressed to you."}</small><small className="analysis-provider-summary">{modelStatus?.summary}</small></div>{!analysing && latestAnalysisJob?.status !== "running" && <button className="primary-button" disabled={!modelStatus?.configured} onClick={() => void analyse()}>{analysis ? "Analyse again" : latestAnalysisJob?.status === "failed" ? "Retry analysis" : "Analyse meeting"}</button>}{(analysing || latestAnalysisJob?.status === "running" || latestAnalysisJob?.status === "queued") && <span className="transcription-state">Analysing...</span>}</div>{analysisStale && <p className="analysis-stale">The transcript changed. Analyse again to refresh notes and action items.</p>}{latestAnalysisJob?.status === "failed" && <p className="transcription-error">{latestAnalysisJob.error}</p>}{analysis && <><div className="analysis-notes">{analysis.notes}</div><div className="analysis-items">{analysis.items.map((item) => <article className={`analysis-item ${item.kind}`} key={item.id}><span>{analysisItemLabel(item.kind)}</span><div><strong>{item.title}</strong><p>{item.text}</p><button className="analysis-timestamp" onClick={() => void api.playRecording(meeting.recordingPath!, item.startMs / 1_000).catch((reason) => onError(String(reason)))}>{formatTranscriptTime(item.startMs)}</button>{item.taskId && <small>Thread created</small>}</div></article>)}</div></>}</section>}
   </section>;
 }

@@ -28,8 +28,8 @@ pub struct AppSettings {
     pub audio_input_mode: String,
     #[serde(default = "default_task_retention_days")]
     pub task_retention_days: u64,
-    /// Local speech recognition. Absent in files written before providers were configurable, which is
-    /// why it carries a default rather than being required.
+    /// Speech recognition provider, model and language. Absent in files written before providers
+    /// were configurable, which is why it carries a default rather than being required.
     #[serde(default)]
     pub speech: SpeechSettings,
     /// The language model that answers analysis requests. API keys are never stored here; see

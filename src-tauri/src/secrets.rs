@@ -18,6 +18,12 @@ pub(crate) fn language_model_account(provider: &str) -> String {
     format!("language-model/{provider}")
 }
 
+/// Where a cloud speech provider's key lives, independently of language model credentials. This
+/// separation lets a user revoke transcription without disabling meeting analysis.
+pub(crate) fn speech_account(provider: &str) -> String {
+    format!("speech/{provider}")
+}
+
 pub(crate) fn store(account: &str, secret: &str) -> AppResult<()> {
     let secret = secret.trim();
     if secret.is_empty() {

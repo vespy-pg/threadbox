@@ -82,13 +82,25 @@ export interface ModelStatus {
 }
 
 export type SpeechModelId = "small" | "medium" | "large";
+export type SpeechProvider = "local" | "openai";
 
 export interface SpeechSettings {
+  /** Preselected for a new meeting job. Each queued job keeps its own provider. */
+  provider: SpeechProvider;
   /** Used for meetings. Voice notes always use the small model so capture stays fast. */
   model: SpeechModelId;
   /** "auto" for detection per recording, or a language code. */
   language: string;
   terminologyLanguage: string | null;
+  /** Timestamp-capable cloud model used for meeting recordings. */
+  cloudModel: "whisper-1";
+}
+
+export interface SpeechCloudStatus {
+  provider: "openai";
+  model: string;
+  configured: boolean;
+  keyPresent: boolean;
 }
 
 export type LanguageModelKind = "unset" | "local" | "api" | "agent";

@@ -168,6 +168,12 @@ Implemented:
 - **Keys live in the operating system keyring**, one entry per provider so switching provider does not
   discard the other key. The settings file records only which provider is selected. A key can be
   removed, which deletes the credential, and no code path returns a stored key to the interface.
+- **Cloud speech-to-text is available for recorded audio.** OpenAI speech credentials are separate
+  from language-model credentials. Meetings and voice notes show a local or cloud selector before
+  recording is processed, and cloud selection states that the audio will be uploaded. Meeting jobs
+  persist provider, model and language before processing, so a settings change or restart cannot
+  move queued work across a privacy boundary. Stereo meetings retain separate microphone and system
+  transcripts and their original timeline after chunked upload.
 - **The choice is offered once during the first run**, as the second screen of the welcome flow, and
   skipping it is allowed: nothing breaks until analysis is asked for.
 
@@ -177,6 +183,8 @@ Implemented:
 
 Still not implemented:
 
-- Cloud speech-to-text and per-job local or cloud selection.
+- A credentialed end-to-end cloud transcription smoke test remains to be run by a user who supplies
+  an OpenAI API key. Automated tests cover response parsing, chunking, job provenance and provider
+  validation without using a live credential.
 - Official provider sign-in has no implementation, because the survey above found no published flow a
   third-party application may use for inference. The provider list is the place to add one.

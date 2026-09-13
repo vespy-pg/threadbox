@@ -1,4 +1,5 @@
 mod analysis;
+mod cloud_speech;
 mod database;
 mod documents;
 mod error;
@@ -29,11 +30,12 @@ use native_audio::{
     MeetingAudioRecorder, NativeAudioPlayer, NativeAudioRecorder, NativeRecordingResult,
 };
 use providers::{LanguageModelStatus, ProviderProbe};
+use serde::Serialize;
 use serde_json::Value;
 use settings::AppSettings;
 use speech::ModelStatus;
 use tauri_plugin_autostart::ManagerExt;
-use transcriptions::{MeetingTranscript, ProcessingJob};
+use transcriptions::{MeetingTranscript, ProcessingJob, TranscriptionJobConfig};
 use vocabulary::{
     VocabularyCandidate, VocabularySet, VocabularySetInput, VocabularyTerm, VocabularyTermInput,
 };
@@ -41,6 +43,15 @@ use workspace::{
     Organization, OrganizationInput, Person, PersonInput, Project, ProjectInput, ProjectLanguage,
     ProjectMember,
 };
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SpeechCloudStatus {
+    provider: String,
+    model: String,
+    configured: bool,
+    key_present: bool,
+}
 
 #[tauri::command]
 fn list_tasks(database: tauri::State<'_, Database>) -> AppResult<Vec<Task>> {
@@ -360,12 +371,28 @@ fn meeting_transcription_jobs(
 async fn transcribe_meeting(
     database: tauri::State<'_, Database>,
     id: String,
+    provider: Option<String>,
 ) -> AppResult<MeetingTranscript> {
     let settings = AppSettings::load().unwrap_or_default().speech;
+    let provider = provider.unwrap_or(settings.provider);
+    let model_id = match provider.as_str() {
+        providers::SPEECH_LOCAL => settings.model,
+        providers::SPEECH_OPENAI => settings.cloud_model,
+        _ => {
+            return Err(error::AppError::InvalidInput(format!(
+                "Unknown speech provider: {provider}"
+            )))
+        }
+    };
+    let config = TranscriptionJobConfig {
+        provider,
+        model_id,
+        language: settings.language,
+    };
     let database = database.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let job = database.enqueue_meeting_transcription(&id)?;
-        database.process_transcription_job(&job.id, &settings.model, &settings.language)
+        let job = database.enqueue_meeting_transcription(&id, &config)?;
+        database.process_transcription_job(&job.id)
     })
     .await
     .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
@@ -547,13 +574,88 @@ async fn transcribe_wav(
     wav_base64: String,
     model: Option<String>,
     language: Option<String>,
+    provider: Option<String>,
 ) -> AppResult<String> {
     let speech_settings = AppSettings::load().unwrap_or_default().speech;
-    let model = model.unwrap_or_else(|| speech::DEFAULT_MODEL.to_string());
     let language = language.unwrap_or(speech_settings.language);
-    tauri::async_runtime::spawn_blocking(move || speech::transcribe(&wav_base64, &model, &language))
-        .await
-        .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
+    let provider = provider.unwrap_or_else(|| providers::SPEECH_LOCAL.into());
+    tauri::async_runtime::spawn_blocking(move || match provider.as_str() {
+        providers::SPEECH_LOCAL => {
+            let model = model.unwrap_or_else(|| speech::DEFAULT_MODEL.to_string());
+            speech::transcribe(&wav_base64, &model, &language)
+        }
+        providers::SPEECH_OPENAI => {
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(wav_base64)
+                .map_err(|error| {
+                    error::AppError::InvalidInput(format!("Invalid audio data: {error}"))
+                })?;
+            let key = secrets::read(&secrets::speech_account(providers::SPEECH_OPENAI))?
+                .ok_or_else(|| {
+                    error::AppError::InvalidInput(
+                        "Add an OpenAI speech API key in Settings before using cloud transcription"
+                            .into(),
+                    )
+                })?;
+            let transcript = cloud_speech::transcribe_openai_wav_channel(
+                &bytes,
+                providers::OPENAI_SPEECH_MODEL,
+                &language,
+                0,
+                None,
+                &key,
+            )?;
+            Ok(transcript
+                .segments
+                .into_iter()
+                .map(|segment| segment.text)
+                .collect::<Vec<_>>()
+                .join(" ")
+                .trim()
+                .to_string())
+        }
+        _ => Err(error::AppError::InvalidInput(format!(
+            "Unknown speech provider: {provider}"
+        ))),
+    })
+    .await
+    .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
+}
+
+/// Cloud speech credentials are separate from language model credentials, so either permission can
+/// be revoked independently.
+#[tauri::command]
+fn speech_cloud_status() -> SpeechCloudStatus {
+    let settings = AppSettings::load().unwrap_or_default().speech;
+    let key_present = secrets::is_present(&secrets::speech_account(providers::SPEECH_OPENAI));
+    SpeechCloudStatus {
+        provider: providers::SPEECH_OPENAI.into(),
+        model: settings.cloud_model,
+        configured: key_present,
+        key_present,
+    }
+}
+
+#[tauri::command]
+fn set_speech_cloud_key(provider: String, key: String) -> AppResult<SpeechCloudStatus> {
+    if provider != providers::SPEECH_OPENAI {
+        return Err(error::AppError::InvalidInput(format!(
+            "Unknown cloud speech provider: {provider}"
+        )));
+    }
+    secrets::store(&secrets::speech_account(&provider), &key)?;
+    Ok(speech_cloud_status())
+}
+
+#[tauri::command]
+fn delete_speech_cloud_key(provider: String) -> AppResult<SpeechCloudStatus> {
+    if provider != providers::SPEECH_OPENAI {
+        return Err(error::AppError::InvalidInput(format!(
+            "Unknown cloud speech provider: {provider}"
+        )));
+    }
+    secrets::delete(&secrets::speech_account(&provider))?;
+    Ok(speech_cloud_status())
 }
 
 /// What will answer the next analysis request, so the interface can say so before anything is sent.
@@ -708,7 +810,6 @@ pub fn run() {
             ))?;
 
             let settings = AppSettings::load().unwrap_or_default();
-            let resume_speech = settings.speech.clone();
             let resume_language_model = settings.language_model.clone();
             tauri::async_runtime::spawn_blocking(move || {
                 if let Ok(connection) = resume_database.connect() {
@@ -716,9 +817,7 @@ pub fn run() {
                         eprintln!("Could not recover interrupted transcriptions: {error}");
                     }
                 }
-                if let Err(error) = resume_database
-                    .resume_transcription_jobs(&resume_speech.model, &resume_speech.language)
-                {
+                if let Err(error) = resume_database.resume_transcription_jobs() {
                     eprintln!("Could not resume pending transcriptions: {error}");
                 }
                 if let Err(error) = resume_database.resume_analysis_jobs(&resume_language_model) {
@@ -812,6 +911,9 @@ pub fn run() {
             speech_models,
             download_model,
             transcribe_wav,
+            speech_cloud_status,
+            set_speech_cloud_key,
+            delete_speech_cloud_key,
             language_model_status,
             test_language_model,
             set_language_model_key,
