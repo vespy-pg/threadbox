@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { readImage } from "@tauri-apps/plugin-clipboard-manager";
 import { setMediaRoot } from "./media";
-import type { AppSettings, ApiProvider, LanguageModelStatus, Meeting, MeetingAnalysis, MeetingInput, MeetingTranscript, ModelStatus, Organization, OrganizationMember, Person, ProcessingJob, Project, ProjectDocument, ProjectDocumentInput, ProjectLanguage, ProviderProbe, SpeechModelId, Task, TaskInput, TaskPatch } from "./types";
+import type { AppSettings, ApiProvider, LanguageModelStatus, Meeting, MeetingAnalysis, MeetingInput, MeetingTranscript, ModelStatus, Organization, OrganizationMember, Person, ProcessingJob, Project, ProjectDocument, ProjectDocumentInput, ProjectLanguage, ProviderProbe, SpeechModelId, Task, TaskInput, TaskPatch, VocabularyCandidate, VocabularySet, VocabularySetInput, VocabularyTerm, VocabularyTermInput } from "./types";
 
 const inTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 
@@ -274,6 +274,50 @@ export const api = {
 
   async analyseMeeting(id: string): Promise<MeetingAnalysis> {
     return invoke<MeetingAnalysis>("analyse_meeting", { id });
+  },
+
+  async listVocabularySets(projectId?: string | null): Promise<VocabularySet[]> {
+    return invoke<VocabularySet[]>("list_vocabulary_sets", { projectId: projectId ?? null });
+  },
+
+  async createVocabularySet(input: VocabularySetInput): Promise<VocabularySet> {
+    return invoke<VocabularySet>("create_vocabulary_set", { input: { alwaysActive: false, projectIds: [], ...input } });
+  },
+
+  async updateVocabularySet(id: string, input: VocabularySetInput): Promise<VocabularySet> {
+    return invoke<VocabularySet>("update_vocabulary_set", { id, name: input.name, alwaysActive: input.alwaysActive ?? false, projectIds: input.projectIds ?? [] });
+  },
+
+  async deleteVocabularySet(id: string): Promise<void> {
+    await invoke<void>("delete_vocabulary_set", { id });
+  },
+
+  async listVocabularyTerms(setId: string): Promise<VocabularyTerm[]> {
+    return invoke<VocabularyTerm[]>("list_vocabulary_terms", { setId });
+  },
+
+  async createVocabularyTerm(input: VocabularyTermInput): Promise<VocabularyTerm> {
+    return invoke<VocabularyTerm>("create_vocabulary_term", { input: { expansion: null, definition: null, language: "en", variants: [], priority: 0, ...input } });
+  },
+
+  async updateVocabularyTerm(id: string, input: VocabularyTermInput): Promise<VocabularyTerm> {
+    return invoke<VocabularyTerm>("update_vocabulary_term", { id, input: { expansion: null, definition: null, language: "en", variants: [], priority: 0, ...input } });
+  },
+
+  async deleteVocabularyTerm(id: string): Promise<void> {
+    await invoke<void>("delete_vocabulary_term", { id });
+  },
+
+  async vocabularyCandidates(projectId: string): Promise<VocabularyCandidate[]> {
+    return invoke<VocabularyCandidate[]>("vocabulary_candidates", { projectId });
+  },
+
+  async dismissVocabularyCandidate(projectId: string, text: string): Promise<void> {
+    await invoke<void>("dismiss_vocabulary_candidate", { projectId, text });
+  },
+
+  async correctTranscriptSegment(id: string, text: string): Promise<void> {
+    await invoke<void>("correct_transcript_segment", { id, text });
   },
 
   /** Fetched once so the interface can resolve the relative references stored in the database. */

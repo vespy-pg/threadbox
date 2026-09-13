@@ -13,6 +13,7 @@ mod secrets;
 mod settings;
 mod speech;
 mod transcriptions;
+mod vocabulary;
 mod workspace;
 
 use std::path::PathBuf;
@@ -32,6 +33,9 @@ use settings::AppSettings;
 use speech::ModelStatus;
 use tauri_plugin_autostart::ManagerExt;
 use transcriptions::{MeetingTranscript, ProcessingJob};
+use vocabulary::{
+    VocabularyCandidate, VocabularySet, VocabularySetInput, VocabularyTerm, VocabularyTermInput,
+};
 use workspace::{
     Organization, OrganizationInput, Person, PersonInput, Project, ProjectInput, ProjectLanguage,
     ProjectMember,
@@ -397,6 +401,94 @@ async fn analyse_meeting(
     .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
 }
 
+#[tauri::command]
+fn list_vocabulary_sets(
+    database: tauri::State<'_, Database>,
+    project_id: Option<String>,
+) -> AppResult<Vec<VocabularySet>> {
+    database.list_vocabulary_sets(project_id.as_deref())
+}
+
+#[tauri::command]
+fn create_vocabulary_set(
+    database: tauri::State<'_, Database>,
+    input: VocabularySetInput,
+) -> AppResult<VocabularySet> {
+    database.create_vocabulary_set(input)
+}
+
+#[tauri::command]
+fn update_vocabulary_set(
+    database: tauri::State<'_, Database>,
+    id: String,
+    name: String,
+    always_active: bool,
+    project_ids: Vec<String>,
+) -> AppResult<VocabularySet> {
+    database.update_vocabulary_set(&id, &name, always_active, project_ids)
+}
+
+#[tauri::command]
+fn delete_vocabulary_set(database: tauri::State<'_, Database>, id: String) -> AppResult<()> {
+    database.delete_vocabulary_set(&id)
+}
+
+#[tauri::command]
+fn list_vocabulary_terms(
+    database: tauri::State<'_, Database>,
+    set_id: String,
+) -> AppResult<Vec<VocabularyTerm>> {
+    database.list_vocabulary_terms(&set_id)
+}
+
+#[tauri::command]
+fn create_vocabulary_term(
+    database: tauri::State<'_, Database>,
+    input: VocabularyTermInput,
+) -> AppResult<VocabularyTerm> {
+    database.create_vocabulary_term(input)
+}
+
+#[tauri::command]
+fn update_vocabulary_term(
+    database: tauri::State<'_, Database>,
+    id: String,
+    input: VocabularyTermInput,
+) -> AppResult<VocabularyTerm> {
+    database.update_vocabulary_term(input, &id)
+}
+
+#[tauri::command]
+fn delete_vocabulary_term(database: tauri::State<'_, Database>, id: String) -> AppResult<()> {
+    database.delete_vocabulary_term(&id)
+}
+
+#[tauri::command]
+fn vocabulary_candidates(
+    database: tauri::State<'_, Database>,
+    project_id: String,
+) -> AppResult<Vec<VocabularyCandidate>> {
+    database.vocabulary_candidates(&project_id)
+}
+
+#[tauri::command]
+fn dismiss_vocabulary_candidate(
+    database: tauri::State<'_, Database>,
+    project_id: String,
+    text: String,
+) -> AppResult<()> {
+    database.dismiss_vocabulary_candidate(&project_id, &text)
+}
+
+#[tauri::command]
+fn correct_transcript_segment(
+    database: tauri::State<'_, Database>,
+    id: String,
+    text: String,
+) -> AppResult<()> {
+    database.correct_transcript_segment(&id, &text)
+}
+
 /// Stored media is recorded relative to this directory, so the interface needs it to display a file.
 #[tauri::command]
 fn media_root(database: tauri::State<'_, Database>) -> AppResult<String> {
@@ -701,6 +793,17 @@ pub fn run() {
             meeting_analysis,
             meeting_analysis_jobs,
             analyse_meeting,
+            list_vocabulary_sets,
+            create_vocabulary_set,
+            update_vocabulary_set,
+            delete_vocabulary_set,
+            list_vocabulary_terms,
+            create_vocabulary_term,
+            update_vocabulary_term,
+            delete_vocabulary_term,
+            vocabulary_candidates,
+            dismiss_vocabulary_candidate,
+            correct_transcript_segment,
             media_root,
             project_language,
             save_data_url,

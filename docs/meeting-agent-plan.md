@@ -1,7 +1,7 @@
 # Meeting agent plan
 
-Status: implementation in progress. Meetings, two-track recording, persisted transcription and
-derived analysis are implemented; vocabulary management remains. Read together with
+Status: Stage 1 implemented. Meetings, two-track recording, persisted transcription, derived analysis
+and project vocabulary management form the complete local loop. Read together with
 `privacy-and-sync-model.md`, which defines the
 privacy levels this plan has to fit, and `vocabulary-domain.md`, which describes the terminology
 feature the transcription quality depends on.

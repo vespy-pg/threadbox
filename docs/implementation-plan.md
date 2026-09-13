@@ -44,7 +44,7 @@ transcripts, and learning from the user's corrections.
 
 ## Status
 
-**Steps 1 to 6 are implemented**, on branch `feature/meeting-agent-domain-foundation`, not merged.
+**Steps 1 to 7 are implemented**, on branch `feature/meeting-agent-domain-foundation`, not merged.
 The application shell has subsequently been reorganised around organisations and projects before
 starting step 4. `information-architecture.md` records the product structure this establishes.
 
@@ -175,7 +175,7 @@ acceptance check after the refreshed application is launched.
   global setting, while `auto` keeps per-channel detection enabled.
 - Vocabulary sets, terms and project attachments have their data foundation in the same migration.
   The recognition prompt contains the highest-priority terms from the meeting project plus
-  always-active sets, with a strict size bound. Vocabulary management remains step 7.
+  always-active sets, with a strict size bound.
 - The Meetings surface starts or retries a transcription, shows persisted failures, polls work that
   resumed after a restart and presents the source transcript as a time-ordered conversation between
   the user and other participants. Re-running recognition replaces derived segments but preserves
@@ -208,4 +208,22 @@ downloaded model and meeting recording.
 Verified with clippy using `-D warnings`, 59 Rust tests, 31 interface tests and `tsc --noEmit`.
 Output quality remains an acceptance check against real meetings and the provider chosen by the user.
 
-- Step 7: not started.
+### Step 7, vocabulary management
+
+- Every project has a Vocabulary surface. A set can be attached to one or several projects or marked
+  always active, and its terms carry a canonical form, expansion, definition, language, observed
+  variants and recognition priority.
+- Candidate harvesting scans that project's source transcripts for recurring or domain-shaped terms.
+  Candidates require an explicit Accept action and can be dismissed; Threadbox never expands the
+  glossary automatically from this signal.
+- Each transcript segment can be corrected in place. The recognised text remains in `original_text`,
+  the corrected text becomes the visible source of truth, and a matching canonical glossary term
+  learns the earlier spelling as an observed variant. Existing meeting analysis is visibly marked
+  stale until it is run again.
+- Schema version 9 stores candidate review decisions. Vocabulary records keep stable identifiers,
+  timestamps and soft deletion, and the existing transcription and analysis prompts consume the
+  effective project glossary.
+
+Verified with clippy using `-D warnings`, 61 Rust tests, 31 interface tests and `tsc --noEmit`.
+Recognition bias, candidate usefulness and analysis quality remain acceptance checks against real
+project terms and recordings.

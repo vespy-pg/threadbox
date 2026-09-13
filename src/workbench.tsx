@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowRight, BriefcaseBusiness, CalendarDays, CheckCircle2, Clock3, FileText, FolderKanban, Inbox, LayoutDashboard, Link2, ListTodo, Mail, Mic, Play, Plus, Plug, Square, Settings2, Trash2, UserPlus, Users } from "lucide-react";
+import { ArrowRight, BookOpen, BriefcaseBusiness, CalendarDays, CheckCircle2, Clock3, FileText, FolderKanban, Inbox, LayoutDashboard, Link2, ListTodo, Mail, Mic, Play, Plus, Plug, Square, Settings2, Trash2, UserPlus, Users, X } from "lucide-react";
 
 import { api } from "./api";
 import { ProjectDetail, projectPath, type Workspace } from "./projects";
-import type { LanguageModelStatus, Meeting, MeetingAnalysis, MeetingTranscript, Organization, OrganizationMember, Person, ProcessingJob, Project, Task } from "./types";
+import type { LanguageModelStatus, Meeting, MeetingAnalysis, MeetingTranscript, Organization, OrganizationMember, Person, ProcessingJob, Project, Task, TranscriptSegment, VocabularyCandidate, VocabularySet, VocabularyTerm } from "./types";
 
-export type WorkbenchArea = "organization-overview" | "projects" | "people" | "integrations" | "project-overview" | "threads" | "meetings" | "documents";
+export type WorkbenchArea = "organization-overview" | "projects" | "people" | "integrations" | "project-overview" | "threads" | "meetings" | "documents" | "vocabulary";
 
 export function WorkspaceNavigation({ workspace, organization, project, area, inboxCount, projectTaskCounts, onOrganization, onCreateOrganization, onProject, onArea }: { workspace: Workspace; organization: Organization | null; project: Project | null; area: WorkbenchArea; inboxCount: number; projectTaskCounts: Record<string, number>; onOrganization: (id: string | null) => void; onCreateOrganization: () => void; onProject: (id: string | null) => void; onArea: (area: WorkbenchArea) => void }) {
   const projects = organization ? workspace.projects.filter((item) => item.organizationId === organization.id) : [];
@@ -36,6 +36,7 @@ export function WorkspaceNavigation({ workspace, organization, project, area, in
       <button className={area === "threads" ? "nav-item active" : "nav-item"} onClick={() => onArea("threads")}><ListTodo size={17} /><span>Threads</span>{(projectTaskCounts[project.id] ?? 0) > 0 && <span className="count">{projectTaskCounts[project.id]}</span>}</button>
       <button className={area === "meetings" ? "nav-item active" : "nav-item"} onClick={() => onArea("meetings")}><CalendarDays size={17} /><span>Meetings</span></button>
       <button className={area === "documents" ? "nav-item active" : "nav-item"} onClick={() => onArea("documents")}><FileText size={17} /><span>Documents</span></button>
+      <button className={area === "vocabulary" ? "nav-item active" : "nav-item"} onClick={() => onArea("vocabulary")}><BookOpen size={17} /><span>Vocabulary</span></button>
     </nav>}
   </>;
 }
@@ -177,6 +178,98 @@ export function MeetingRecordingBanner({ meeting, project, onStop }: { meeting: 
   return <aside className="meeting-recording-banner" aria-live="polite"><span className="recording-pulse" /><div><strong>Recording {meeting.title}</strong><small>{project?.name ?? "Unassigned"} - microphone + system audio - {formatMeetingDuration(seconds)}</small></div><button disabled={stopping} onClick={() => { setStopping(true); void onStop().finally(() => setStopping(false)); }}><Square size={14} />{stopping ? "Saving..." : "Stop and save"}</button></aside>;
 }
 
+export function VocabularyWorkspace({ project, workspace, onError }: { project: Project; workspace: Workspace; onError: (message: string) => void }) {
+  const [sets, setSets] = useState<VocabularySet[]>([]);
+  const [terms, setTerms] = useState<VocabularyTerm[]>([]);
+  const [candidates, setCandidates] = useState<VocabularyCandidate[]>([]);
+  const [selectedSetId, setSelectedSetId] = useState<string | null>(null);
+  const [newSetName, setNewSetName] = useState("");
+  const [newTerm, setNewTerm] = useState("");
+  const [newDefinition, setNewDefinition] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const [nextSets, nextCandidates] = await Promise.all([api.listVocabularySets(), api.vocabularyCandidates(project.id)]);
+      setSets(nextSets);
+      setCandidates(nextCandidates);
+      setSelectedSetId((current) => current && nextSets.some((set) => set.id === current) ? current : nextSets.find((set) => set.projectIds.includes(project.id) || set.alwaysActive)?.id ?? nextSets[0]?.id ?? null);
+    } catch (reason) { onError(String(reason)); }
+  }, [onError, project.id]);
+
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!selectedSetId) { setTerms([]); return; }
+    void api.listVocabularyTerms(selectedSetId).then(setTerms).catch((reason) => onError(String(reason)));
+  }, [onError, selectedSetId]);
+
+  const selectedSet = sets.find((set) => set.id === selectedSetId) ?? null;
+  const organizationProjects = workspace.projects.filter((item) => item.organizationId === project.organizationId);
+
+  async function createSet() {
+    if (!newSetName.trim()) return;
+    setBusy(true);
+    try {
+      const created = await api.createVocabularySet({ name: newSetName.trim(), projectIds: [project.id] });
+      setNewSetName("");
+      await load();
+      setSelectedSetId(created.id);
+    } catch (reason) { onError(String(reason)); } finally { setBusy(false); }
+  }
+
+  async function updateSet(set: VocabularySet, patch: Partial<Pick<VocabularySet, "name" | "alwaysActive" | "projectIds">>) {
+    try {
+      await api.updateVocabularySet(set.id, { name: patch.name ?? set.name, alwaysActive: patch.alwaysActive ?? set.alwaysActive, projectIds: patch.projectIds ?? set.projectIds });
+      await load();
+    } catch (reason) { onError(String(reason)); }
+  }
+
+  async function createTerm(canonicalForm = newTerm, definition = newDefinition) {
+    if (!selectedSet || !canonicalForm.trim()) return;
+    setBusy(true);
+    try {
+      if (!selectedSet.alwaysActive && !selectedSet.projectIds.includes(project.id)) {
+        await api.updateVocabularySet(selectedSet.id, { ...selectedSet, projectIds: [...selectedSet.projectIds, project.id] });
+      }
+      await api.createVocabularyTerm({ setId: selectedSet.id, canonicalForm: canonicalForm.trim(), definition: definition.trim() || null, language: project.terminologyLanguage ?? project.language ?? "en", priority: 50 });
+      setNewTerm("");
+      setNewDefinition("");
+      setTerms(await api.listVocabularyTerms(selectedSet.id));
+      await load();
+    } catch (reason) { onError(String(reason)); } finally { setBusy(false); }
+  }
+
+  async function removeSet(set: VocabularySet) {
+    if (!window.confirm(`Delete vocabulary set ${set.name}?`)) return;
+    try { await api.deleteVocabularySet(set.id); await load(); } catch (reason) { onError(String(reason)); }
+  }
+
+  async function dismiss(candidate: VocabularyCandidate) {
+    try { await api.dismissVocabularyCandidate(project.id, candidate.text); await load(); } catch (reason) { onError(String(reason)); }
+  }
+
+  return <WorkspacePage eyebrow={projectPath(project, workspace)} title="Vocabulary" description="Teach transcription the names and terms that carry meaning in this project.">
+    <div className="vocabulary-layout"><aside className="vocabulary-sets"><div className="vocabulary-new-set"><input value={newSetName} onChange={(event) => setNewSetName(event.target.value)} placeholder="New set name" onKeyDown={(event) => { if (event.key === "Enter") void createSet(); }} /><button disabled={!newSetName.trim() || busy} onClick={() => void createSet()}><Plus size={14} /></button></div>{sets.map((set) => <button key={set.id} className={selectedSetId === set.id ? "active" : ""} onClick={() => setSelectedSetId(set.id)}><BookOpen size={15} /><span><strong>{set.name}</strong><small>{set.alwaysActive ? "Always active" : `${set.projectIds.length} projects`} - {set.termCount} terms</small></span></button>)}{sets.length === 0 && <p>No vocabulary sets yet.</p>}</aside>
+      <div className="vocabulary-main">{selectedSet ? <><section className="surface-card vocabulary-set-settings"><div className="surface-card-heading"><div><p className="eyebrow">Vocabulary set</p><input defaultValue={selectedSet.name} onBlur={(event) => { const name = event.target.value.trim(); if (name && name !== selectedSet.name) void updateSet(selectedSet, { name }); }} /></div><button className="icon-button danger" title="Delete set" onClick={() => void removeSet(selectedSet)}><Trash2 size={15} /></button></div><label className="vocabulary-check"><input type="checkbox" checked={selectedSet.alwaysActive} onChange={(event) => void updateSet(selectedSet, { alwaysActive: event.target.checked })} />Always use this set in every project</label><div className="vocabulary-projects">{organizationProjects.map((item) => <label key={item.id}><input type="checkbox" disabled={selectedSet.alwaysActive} checked={selectedSet.projectIds.includes(item.id)} onChange={(event) => void updateSet(selectedSet, { projectIds: event.target.checked ? [...selectedSet.projectIds, item.id] : selectedSet.projectIds.filter((id) => id !== item.id) })} />{item.name}</label>)}</div></section>
+        <section className="surface-card"><div className="surface-card-heading"><div><p className="eyebrow">Terms</p><h2>Canonical words and variants</h2></div></div><div className="term-create"><input value={newTerm} onChange={(event) => setNewTerm(event.target.value)} placeholder="Canonical term" /><input value={newDefinition} onChange={(event) => setNewDefinition(event.target.value)} placeholder="Short definition (optional)" /><button className="primary-button" disabled={!newTerm.trim() || busy} onClick={() => void createTerm()}>Add term</button></div><div className="vocabulary-terms">{terms.map((term) => <VocabularyTermRow key={term.id} term={term} onSaved={async () => { setTerms(await api.listVocabularyTerms(selectedSet.id)); await load(); }} onError={onError} />)}{terms.length === 0 && <p className="transcript-empty">Add the first term. Nothing is learned without your review.</p>}</div></section>
+        <section className="surface-card"><div className="surface-card-heading"><div><p className="eyebrow">From transcripts</p><h2>Candidate terms</h2></div><span className="status-pill">Review required</span></div><div className="vocabulary-candidates">{candidates.map((candidate) => <div key={candidate.text}><span><strong>{candidate.text}</strong><small>{candidate.occurrences} occurrences</small></span><button className="text-button" onClick={() => void dismiss(candidate)}><X size={13} />Dismiss</button><button className="secondary-button" onClick={() => void createTerm(candidate.text, "")}>Accept</button></div>)}{candidates.length === 0 && <p className="transcript-empty">No new recurring or domain-shaped candidates in this project's transcripts.</p>}</div></section></> : <EmptyPanel title="Create a vocabulary set" text="Sets let the same terminology serve one project, several projects or every project." />}</div></div>
+  </WorkspacePage>;
+}
+
+function VocabularyTermRow({ term, onSaved, onError }: { term: VocabularyTerm; onSaved: () => Promise<void>; onError: (message: string) => void }) {
+  const [canonicalForm, setCanonicalForm] = useState(term.canonicalForm);
+  const [expansion, setExpansion] = useState(term.expansion ?? "");
+  const [definition, setDefinition] = useState(term.definition ?? "");
+  const [language, setLanguage] = useState(term.language);
+  const [variants, setVariants] = useState(term.variants.join(", "));
+  const [priority, setPriority] = useState(term.priority);
+  async function save() {
+    try { await api.updateVocabularyTerm(term.id, { setId: term.setId, canonicalForm, expansion: expansion || null, definition: definition || null, language, variants: variants.split(",").map((value) => value.trim()).filter(Boolean), priority }); await onSaved(); } catch (reason) { onError(String(reason)); }
+  }
+  async function remove() { try { await api.deleteVocabularyTerm(term.id); await onSaved(); } catch (reason) { onError(String(reason)); } }
+  return <article className="vocabulary-term"><div><input value={canonicalForm} onChange={(event) => setCanonicalForm(event.target.value)} aria-label="Canonical term" /><input value={expansion} onChange={(event) => setExpansion(event.target.value)} placeholder="Expansion" /></div><textarea value={definition} onChange={(event) => setDefinition(event.target.value)} placeholder="Definition used by the meeting assistant" /><div><input value={variants} onChange={(event) => setVariants(event.target.value)} placeholder="Observed variants, comma separated" /><input className="term-language" value={language} onChange={(event) => setLanguage(event.target.value)} placeholder="Language" /><label className="term-priority">Priority <input type="number" min="0" max="100" value={priority} onChange={(event) => setPriority(Number(event.target.value))} /></label><button className="secondary-button" disabled={!canonicalForm.trim()} onClick={() => void save()}>Save</button><button className="icon-button danger" title="Delete term" onClick={() => void remove()}><Trash2 size={14} /></button></div></article>;
+}
+
 function MeetingTranscriptPanel({ meeting, onTasksChanged, onError }: { meeting: Meeting; onTasksChanged: () => Promise<void>; onError: (message: string) => void }) {
   const [transcript, setTranscript] = useState<MeetingTranscript | null>(null);
   const [jobs, setJobs] = useState<ProcessingJob[]>([]);
@@ -241,13 +334,25 @@ function MeetingTranscriptPanel({ meeting, onTasksChanged, onError }: { meeting:
 
   const latestJob = jobs[0] ?? null;
   const latestAnalysisJob = analysisJobs[0] ?? null;
+  const analysisStale = Boolean(transcript && analysis && new Date(transcript.updatedAt).getTime() > new Date(analysis.updatedAt).getTime());
   return <section className="meeting-transcript">
     <div className="meeting-transcript-heading"><div><strong>Source transcript</strong><small>{transcript ? `Microphone: ${transcript.microphoneLanguage} - system: ${transcript.systemLanguage} - ${transcript.modelId}` : "Timestamped microphone and system channels are stored separately."}</small></div>{!processing && latestJob?.status !== "running" && <button className="secondary-button" onClick={() => void transcribe()}>{transcript ? "Transcribe again" : latestJob?.status === "failed" ? "Retry transcription" : "Transcribe recording"}</button>}{(processing || latestJob?.status === "running" || latestJob?.status === "queued") && <span className="transcription-state">Processing...</span>}</div>
     {latestJob?.status === "failed" && <p className="transcription-error">{latestJob.error}</p>}
-    {transcript && <div className="transcript-segments">{transcript.segments.map((segment) => <div className={`transcript-segment ${segment.channel}`} key={segment.id}><button title="Play from this timestamp" onClick={() => void api.playRecording(meeting.recordingPath!, segment.startMs / 1_000).catch((reason) => onError(String(reason)))}>{formatTranscriptTime(segment.startMs)}</button><span>{segment.channel === "microphone" ? "You" : "Others"}</span><p>{segment.text}</p></div>)}</div>}
+    {transcript && <div className="transcript-segments">{transcript.segments.map((segment) => <div className={`transcript-segment ${segment.channel}`} key={segment.id}><button title="Play from this timestamp" onClick={() => void api.playRecording(meeting.recordingPath!, segment.startMs / 1_000).catch((reason) => onError(String(reason)))}>{formatTranscriptTime(segment.startMs)}</button><span>{segment.channel === "microphone" ? "You" : "Others"}</span><TranscriptSegmentText segment={segment} onSaved={load} onError={onError} /></div>)}</div>}
     {!transcript && latestJob?.status !== "failed" && !processing && <p className="transcript-empty">No transcript yet. Threadbox will use the configured meeting model and project language.</p>}
-    {transcript && <section className="meeting-analysis"><div className="meeting-analysis-heading"><div><strong>Meeting assistant</strong><small>{analysis ? `${analysis.provider} - ${analysis.model} - ${analysis.promptVersion}` : "Notes, decisions, your action items and moments addressed to you."}</small><small className="analysis-provider-summary">{modelStatus?.summary}</small></div>{!analysing && latestAnalysisJob?.status !== "running" && <button className="primary-button" disabled={!modelStatus?.configured} onClick={() => void analyse()}>{analysis ? "Analyse again" : latestAnalysisJob?.status === "failed" ? "Retry analysis" : "Analyse meeting"}</button>}{(analysing || latestAnalysisJob?.status === "running" || latestAnalysisJob?.status === "queued") && <span className="transcription-state">Analysing...</span>}</div>{latestAnalysisJob?.status === "failed" && <p className="transcription-error">{latestAnalysisJob.error}</p>}{analysis && <><div className="analysis-notes">{analysis.notes}</div><div className="analysis-items">{analysis.items.map((item) => <article className={`analysis-item ${item.kind}`} key={item.id}><span>{analysisItemLabel(item.kind)}</span><div><strong>{item.title}</strong><p>{item.text}</p><button className="analysis-timestamp" onClick={() => void api.playRecording(meeting.recordingPath!, item.startMs / 1_000).catch((reason) => onError(String(reason)))}>{formatTranscriptTime(item.startMs)}</button>{item.taskId && <small>Thread created</small>}</div></article>)}</div></>}</section>}
+    {transcript && <section className="meeting-analysis"><div className="meeting-analysis-heading"><div><strong>Meeting assistant</strong><small>{analysis ? `${analysis.provider} - ${analysis.model} - ${analysis.promptVersion}` : "Notes, decisions, your action items and moments addressed to you."}</small><small className="analysis-provider-summary">{modelStatus?.summary}</small></div>{!analysing && latestAnalysisJob?.status !== "running" && <button className="primary-button" disabled={!modelStatus?.configured} onClick={() => void analyse()}>{analysis ? "Analyse again" : latestAnalysisJob?.status === "failed" ? "Retry analysis" : "Analyse meeting"}</button>}{(analysing || latestAnalysisJob?.status === "running" || latestAnalysisJob?.status === "queued") && <span className="transcription-state">Analysing...</span>}</div>{analysisStale && <p className="analysis-stale">The transcript changed. Analyse again to refresh notes and action items.</p>}{latestAnalysisJob?.status === "failed" && <p className="transcription-error">{latestAnalysisJob.error}</p>}{analysis && <><div className="analysis-notes">{analysis.notes}</div><div className="analysis-items">{analysis.items.map((item) => <article className={`analysis-item ${item.kind}`} key={item.id}><span>{analysisItemLabel(item.kind)}</span><div><strong>{item.title}</strong><p>{item.text}</p><button className="analysis-timestamp" onClick={() => void api.playRecording(meeting.recordingPath!, item.startMs / 1_000).catch((reason) => onError(String(reason)))}>{formatTranscriptTime(item.startMs)}</button>{item.taskId && <small>Thread created</small>}</div></article>)}</div></>}</section>}
   </section>;
+}
+
+function TranscriptSegmentText({ segment, onSaved, onError }: { segment: TranscriptSegment; onSaved: () => Promise<void>; onError: (message: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(segment.text);
+  async function save() {
+    if (!text.trim()) return;
+    try { await api.correctTranscriptSegment(segment.id, text.trim()); setEditing(false); await onSaved(); } catch (reason) { onError(String(reason)); }
+  }
+  if (!editing) return <button className="transcript-text" title="Correct this segment" onClick={() => setEditing(true)}>{segment.text}</button>;
+  return <div className="transcript-correction"><textarea autoFocus value={text} onChange={(event) => setText(event.target.value)} /><span><button className="text-button" onClick={() => { setText(segment.text); setEditing(false); }}>Cancel</button><button className="secondary-button" onClick={() => void save()}>Save correction</button></span></div>;
 }
 
 function analysisItemLabel(kind: MeetingAnalysis["items"][number]["kind"]): string {

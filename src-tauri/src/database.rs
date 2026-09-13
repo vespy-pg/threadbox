@@ -173,6 +173,10 @@ impl Database {
             crate::analysis::migrate_schema(&connection)?;
             connection.pragma_update(None, "user_version", 8)?;
         }
+        if version < 9 {
+            crate::vocabulary::migrate_schema(&connection)?;
+            connection.pragma_update(None, "user_version", 9)?;
+        }
         Ok(())
     }
 

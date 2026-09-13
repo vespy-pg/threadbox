@@ -1,6 +1,8 @@
 # Vocabulary domain
 
-Status: draft. Not implemented.
+Status: core workflow implemented. Set and term management, project attachment, candidate review and
+learning from explicit transcript corrections are available. Bulk text or CSV import and automatic
+confidence-based correction remain future extensions.
 
 ## Why this exists
 
@@ -50,9 +52,9 @@ near-miss spellings, split or joined words, and phonetically similar substitutio
 size limit, so it covers the terms that did not fit in the prompt, and it can use the record of how a
 term has been misrecognised in the past.
 
-Two rules for this pass. The original recognised text is never overwritten in storage; corrections
-are recorded alongside it with the term that was applied, so a wrong correction stays visible and
-reversible. And a correction is only applied above a confidence threshold, because silently turning a
+Two rules shape this pass. The original recognised text is never overwritten in storage; an explicit
+user correction changes the visible text while preserving the recognition result alongside it. Any
+future automatic correction must apply only above a confidence threshold, because silently turning a
 correctly recognised ordinary word into a domain term is a worse failure than leaving the error.
 
 ### 3. Context for the analysis model

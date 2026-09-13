@@ -3,7 +3,7 @@
 [![Checks](https://github.com/vespy-pg/threadbox/actions/workflows/checks.yml/badge.svg)](https://github.com/vespy-pg/threadbox/actions/workflows/checks.yml)
 [![MIT License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-Threadbox is a local-first task inbox for work that arrives through conversations. Capture a Slack message, email, WhatsApp message, screenshot, voice note, or thought, then keep the original context beside the task.
+Threadbox is a local-first work and meeting assistant organised around organisations and projects. Capture a Slack message, email, WhatsApp message, screenshot, voice note, thought or meeting, then keep the original context beside the resulting work.
 
 Release 1 targets Linux and Firefox. The architecture keeps the desktop core, browser integration, and website adapters separate so Windows, macOS, and Chromium browsers can be added without rewriting the product.
 
@@ -53,7 +53,11 @@ chmod +x Threadbox_0.1.16_amd64.AppImage
 - Multiple screenshot attachments through paste or the interactive system screenshot capture
 - Retained local voice recordings with playback on each task
 - In-app reminder center with open, snooze and complete actions
-- Local Polish speech recognition for task titles and notes with whisper.cpp through `whisper-rs`
+- Organisation overview, project hierarchy, shared people and project documents
+- Two-track meeting capture with separate microphone and system-audio transcription
+- Meeting notes, decisions, addressed moments and action items anchored to recording timestamps
+- Project vocabulary sets with reviewed transcript candidates and correction-based variants
+- Configurable multilingual speech recognition with whisper.cpp through `whisper-rs`
 - Firefox capture buttons for Slack, Gmail, and WhatsApp Web
 - Universal Firefox context-menu capture
 - Local SQLite metadata with file-based media storage and complete ZIP backup export

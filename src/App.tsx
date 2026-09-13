@@ -44,7 +44,7 @@ import { formatDueDate, taskMatchesView, toDateTimeLocal } from "./date";
 import { mediaSource } from "./media";
 import { ProjectSelect, projectPath, useWorkspace, type Workspace } from "./projects";
 import { LanguageModelProviderSettings, ProviderSetup, SpeechProviderSettings } from "./providers";
-import { DocumentsWorkspace, IntegrationsWorkspace, MeetingRecordingBanner, MeetingsWorkspace, OrganizationOverview, PeopleWorkspace, ProjectOverview, ProjectsWorkspace, WorkspaceNavigation, type WorkbenchArea } from "./workbench";
+import { DocumentsWorkspace, IntegrationsWorkspace, MeetingRecordingBanner, MeetingsWorkspace, OrganizationOverview, PeopleWorkspace, ProjectOverview, ProjectsWorkspace, VocabularyWorkspace, WorkspaceNavigation, type WorkbenchArea } from "./workbench";
 import type { AppSettings, AudioAttachment, AudioInputMode, FileAttachment, Meeting, SourceType, Task, TaskInput, TaskPriority, TaskView } from "./types";
 import packageJson from "../package.json";
 
@@ -493,6 +493,7 @@ export default function App() {
         {area === "projects" && activeOrganization && <ProjectsWorkspace organization={activeOrganization} workspace={workspace} activeProject={activeProject} onReload={reloadWorkspace} onProject={(project) => setActiveProjectId(project.id)} onError={setError} />}
         {area === "meetings" && activeProject && activeOrganization && <MeetingsWorkspace project={activeProject} organization={activeOrganization} workspace={workspace} activeRecording={activeMeetingRecording} revision={meetingRevision} onStart={startMeetingRecording} onStop={stopMeetingRecording} onActiveMeetingUpdate={setActiveMeetingRecording} onTasksChanged={refresh} onIntegrations={() => { setActiveProjectId(null); setArea("integrations"); }} onError={setError} />}
         {area === "documents" && activeProject && <DocumentsWorkspace project={activeProject} workspace={workspace} onReload={reloadWorkspace} onError={setError} />}
+        {area === "vocabulary" && activeProject && <VocabularyWorkspace project={activeProject} workspace={workspace} onError={setError} />}
         {area === "integrations" && activeOrganization && <IntegrationsWorkspace organization={activeOrganization} />}
         {area !== "threads" && !activeOrganization && <section className="workspace-page workspace-start"><div className="module-icon"><Plus size={24} /></div><p className="eyebrow">Start with context</p><h1>Create your first organisation</h1><p>An organisation keeps its projects, people, meetings and documents together without mixing client contexts.</p><button className="primary-button" onClick={() => void createOrganization()}>Create organisation</button></section>}
       </section>

@@ -302,6 +302,52 @@ export interface MeetingAnalysis {
   items: MeetingAnalysisItem[];
 }
 
+export interface VocabularySet {
+  id: string;
+  name: string;
+  alwaysActive: boolean;
+  projectIds: string[];
+  termCount: number;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export interface VocabularySetInput {
+  name: string;
+  alwaysActive?: boolean;
+  projectIds?: string[];
+}
+
+export interface VocabularyTerm {
+  id: string;
+  setId: string;
+  canonicalForm: string;
+  expansion: string | null;
+  definition: string | null;
+  language: string;
+  variants: string[];
+  priority: number;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export interface VocabularyTermInput {
+  setId: string;
+  canonicalForm: string;
+  expansion?: string | null;
+  definition?: string | null;
+  language?: string;
+  variants?: string[];
+  priority?: number;
+}
+
+export interface VocabularyCandidate {
+  text: string;
+  occurrences: number;
+}
+
 export interface Person {
   id: string;
   displayName: string;
