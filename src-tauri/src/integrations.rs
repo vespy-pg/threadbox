@@ -16,6 +16,7 @@ use crate::{
 
 pub const CAPABILITY_MAIL_METADATA_READ: &str = "mail_metadata_read";
 pub const CAPABILITY_MAIL_CONTENT_READ: &str = "mail_content_read";
+pub const CAPABILITY_MAIL_COMPOSE: &str = "mail_compose";
 pub const CAPABILITY_MAIL_SEND: &str = "mail_send";
 pub const CAPABILITY_CALENDAR_READ: &str = "calendar_read";
 pub const CAPABILITY_CALENDAR_WRITE: &str = "calendar_write";
@@ -381,6 +382,56 @@ impl Database {
         Ok(snapshot)
     }
 
+    pub fn has_integration_capability(
+        &self,
+        connection_id: &str,
+        capability: &str,
+    ) -> AppResult<bool> {
+        let snapshot = self.integration_snapshot(connection_id)?;
+        Ok(snapshot.connection.status == "connected"
+            && snapshot
+                .capabilities
+                .iter()
+                .any(|item| item.capability == capability && item.status == "granted"))
+    }
+
+    pub fn integration_sync_cursor(
+        &self,
+        connection_id: &str,
+        resource_kind: &str,
+    ) -> AppResult<Option<String>> {
+        Ok(self
+            .connect()?
+            .query_row(
+                "SELECT cursor FROM sync_cursors WHERE connection_id=?1 AND resource_kind=?2",
+                params![connection_id, resource_kind],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
+    pub fn set_integration_sync_cursor(
+        &self,
+        connection_id: &str,
+        resource_kind: &str,
+        cursor: &str,
+    ) -> AppResult<()> {
+        self.integration_snapshot(connection_id)?;
+        self.connect()?.execute(
+            "INSERT INTO sync_cursors (connection_id, resource_kind, cursor, updated_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(connection_id, resource_kind) DO UPDATE SET
+                cursor=excluded.cursor, updated_at=excluded.updated_at",
+            params![
+                connection_id,
+                resource_kind,
+                cursor,
+                Utc::now().to_rfc3339()
+            ],
+        )?;
+        Ok(())
+    }
+
     pub fn create_approved_external_action(
         &self,
         input: &ExternalActionInput,
@@ -522,6 +573,66 @@ impl Database {
             )
             .optional()?)
     }
+
+    pub fn link_external_mail_message(
+        &self,
+        connection_id: &str,
+        external_id: &str,
+        thread_id: &str,
+        project_id: &str,
+        sender: &str,
+    ) -> AppResult<()> {
+        let snapshot = self.integration_snapshot(connection_id)?;
+        let person_id = self
+            .connect()?
+            .query_row(
+                "SELECT people.id FROM people
+                 JOIN organization_people ON organization_people.person_id=people.id
+                 WHERE organization_people.organization_id=?1 AND people.email IS NOT NULL
+                   AND instr(lower(?2), lower(people.email)) > 0
+                 LIMIT 1",
+                params![snapshot.connection.organization_id, sender],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let now = Utc::now().to_rfc3339();
+        let mut connection = self.connect()?;
+        let transaction = connection.transaction()?;
+        transaction.execute(
+            "INSERT INTO external_objects
+                (id, connection_id, object_kind, external_id, project_id, person_id,
+                 created_at, updated_at)
+             VALUES (?1, ?2, 'mail_message', ?3, ?4, ?5, ?6, ?6)
+             ON CONFLICT(connection_id, object_kind, external_id) DO UPDATE SET
+                project_id=excluded.project_id, person_id=excluded.person_id,
+                updated_at=excluded.updated_at, deleted_at=NULL",
+            params![
+                Uuid::new_v4().to_string(),
+                connection_id,
+                external_id,
+                project_id,
+                person_id,
+                now
+            ],
+        )?;
+        transaction.execute(
+            "INSERT INTO external_objects
+                (id, connection_id, object_kind, external_id, project_id,
+                 created_at, updated_at)
+             VALUES (?1, ?2, 'mail_thread', ?3, ?4, ?5, ?5)
+             ON CONFLICT(connection_id, object_kind, external_id) DO UPDATE SET
+                project_id=excluded.project_id, updated_at=excluded.updated_at, deleted_at=NULL",
+            params![
+                Uuid::new_v4().to_string(),
+                connection_id,
+                thread_id,
+                project_id,
+                now
+            ],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
 }
 
 fn integration_connection_from_row(row: &Row<'_>) -> rusqlite::Result<IntegrationConnection> {
@@ -627,7 +738,7 @@ mod tests {
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 11);
+        assert_eq!(version, 12);
         for table in [
             "integration_connections",
             "integration_capabilities",

@@ -378,7 +378,7 @@ export interface OrganizationMember {
   person: Person;
 }
 
-export type IntegrationCapabilityId = "calendar_read" | "calendar_write" | "calendar_free_busy" | "mail_metadata_read" | "mail_content_read" | "mail_send";
+export type IntegrationCapabilityId = "calendar_read" | "calendar_write" | "calendar_free_busy" | "mail_metadata_read" | "mail_content_read" | "mail_compose" | "mail_send";
 
 export interface IntegrationConnection {
   id: string;
@@ -459,4 +459,93 @@ export interface FindTimeInput {
 export interface AvailableSlot {
   start: string;
   end: string;
+}
+
+export interface ExternalMailLabel {
+  id: string;
+  name: string;
+  labelType: string;
+}
+
+export interface ExternalMailAttachment {
+  attachmentId: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+export interface ExternalMailMessage {
+  id: string;
+  threadId: string;
+  labelIds: string[];
+  snippet: string;
+  historyId: string;
+  internalDate: string;
+  from: string;
+  to: string;
+  cc: string;
+  subject: string;
+  messageId: string;
+  references: string;
+  bodyText: string | null;
+  bodyHtml: string | null;
+  attachments: ExternalMailAttachment[];
+}
+
+export interface MailListInput {
+  connectionId: string;
+  labelId: string | null;
+  query: string | null;
+  maxResults: number;
+  pageToken: string | null;
+}
+
+export interface MailPage {
+  messages: ExternalMailMessage[];
+  nextPageToken: string | null;
+}
+
+export interface MailSyncResult {
+  messages: ExternalMailMessage[];
+  historyId: string;
+  fullSync: boolean;
+}
+
+export interface MailDraftInput {
+  organizationId: string;
+  projectId: string | null;
+  connectionId: string;
+  to: string[];
+  cc: string[];
+  bcc: string[];
+  subject: string;
+  body: string;
+  threadId: string | null;
+  inReplyTo: string | null;
+  references: string | null;
+}
+
+export interface MailActionResult {
+  id: string;
+  threadId: string;
+  draftId: string | null;
+}
+
+export interface ProjectMailItem {
+  id: string;
+  projectId: string;
+  connectionId: string;
+  externalId: string;
+  threadId: string;
+  from: string;
+  to: string;
+  cc: string;
+  subject: string;
+  snippet: string;
+  internalDate: string;
+  bodyText: string | null;
+  bodyHtml: string | null;
+  attachments: ExternalMailAttachment[];
+  createdAt: string;
+  updatedAt: string;
 }

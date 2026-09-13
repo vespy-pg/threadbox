@@ -2,8 +2,9 @@
 
 Status: approved product direction and implementation plan, recorded on 2026-09-14.
 
-Implementation progress: Milestone 0 is implemented. Milestone 1 is implemented in code and awaits
-one credentialed OpenAI smoke test plus the Windows CI rerun before it is accepted as complete.
+Implementation progress: Milestones 0 through 2 are implemented. Milestone 1 still needs one
+credentialed OpenAI smoke test. Milestone 2 still needs a verified production OAuth client and a
+credentialed Google account smoke test. Milestone 3 is implemented in code and is under validation.
 
 ## Release outcome
 
@@ -186,8 +187,8 @@ if the framework can technically start on some of them.
 ### Milestone 0: contracts and portability gate
 
 Implementation: shared schema, capability enforcement, target-specific dependencies and the Windows
-workflow are in place. The first Windows run found the missing `.ico` resource; that resource is now
-included and the gate must pass on the next pushed revision.
+workflow are in place. The missing Windows icon and cross-platform ZIP path regression found by the
+first runs are fixed, and the Windows test and installer workflow passes.
 
 - Define provider-neutral speech, mail and calendar contracts.
 - Add integration, capability, external-object, sync-cursor and external-action schema migrations.
@@ -231,6 +232,12 @@ receive general event synchronisation even when Google's management scope is bro
 stop the affected operation, and free-time results handle time zones and daylight-saving transitions.
 
 ### Milestone 3: Gmail
+
+Implementation: the Google account connection now offers independent metadata, content, draft and
+send capabilities. The adapter supports bounded header pages, Gmail history cursors with a bounded
+full-sync fallback, on-demand body and attachment access, project message and thread links, replies,
+reviewed draft creation and reviewed sending. Project imports retain only the material explicitly
+selected by the user. A verified OAuth client and credentialed end-to-end tests remain release work.
 
 - Add bounded incremental header synchronisation and on-demand body retrieval.
 - Link selected messages and threads to projects and people.

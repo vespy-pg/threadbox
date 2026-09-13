@@ -34,6 +34,10 @@ pub const SCOPE_IDENTITY: [&str; 3] = ["openid", "email", "profile"];
 pub const SCOPE_CALENDAR_READ: &str = "https://www.googleapis.com/auth/calendar.readonly";
 pub const SCOPE_CALENDAR_WRITE: &str = "https://www.googleapis.com/auth/calendar.events";
 pub const SCOPE_CALENDAR_FREE_BUSY: &str = "https://www.googleapis.com/auth/calendar.freebusy";
+pub const SCOPE_GMAIL_METADATA: &str = "https://www.googleapis.com/auth/gmail.metadata";
+pub const SCOPE_GMAIL_READONLY: &str = "https://www.googleapis.com/auth/gmail.readonly";
+pub const SCOPE_GMAIL_COMPOSE: &str = "https://www.googleapis.com/auth/gmail.compose";
+pub const SCOPE_GMAIL_SEND: &str = "https://www.googleapis.com/auth/gmail.send";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct GoogleToken {
@@ -43,6 +47,13 @@ pub struct GoogleToken {
     expires_at: i64,
     #[serde(default)]
     scope: String,
+}
+
+impl GoogleToken {
+    pub fn grants(&self, scopes: &[&str]) -> bool {
+        let granted = self.scope.split_whitespace().collect::<Vec<_>>();
+        scopes.iter().all(|scope| granted.contains(scope))
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -257,5 +268,17 @@ mod tests {
         assert!(verifier.chars().all(|value| value.is_ascii_alphanumeric()));
         let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
         assert!(!challenge.contains('='));
+    }
+
+    #[test]
+    fn capability_is_not_recorded_when_google_omits_a_requested_scope() {
+        let token = GoogleToken {
+            access_token: "token".into(),
+            refresh_token: "refresh".into(),
+            expires_at: 0,
+            scope: format!("openid email profile {SCOPE_GMAIL_SEND}"),
+        };
+        assert!(token.grants(&["openid", SCOPE_GMAIL_SEND]));
+        assert!(!token.grants(&["openid", SCOPE_GMAIL_READONLY]));
     }
 }

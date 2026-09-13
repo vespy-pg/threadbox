@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight, BookOpen, BriefcaseBusiness, CalendarDays, Check
 
 import { api } from "./api";
 import { ProjectDetail, projectPath, type Workspace } from "./projects";
-import type { AppSettings, AvailableSlot, CalendarEventDraft, ExternalCalendar, ExternalCalendarEvent, FindTimeInput, IntegrationCapabilityId, IntegrationSnapshot, LanguageModelStatus, Meeting, MeetingAnalysis, MeetingTranscript, Organization, OrganizationMember, Person, ProcessingJob, Project, SpeechCloudStatus, SpeechProvider, Task, TranscriptSegment, VocabularyCandidate, VocabularySet, VocabularyTerm } from "./types";
+import type { AppSettings, AvailableSlot, CalendarEventDraft, ExternalCalendar, ExternalCalendarEvent, ExternalMailMessage, FindTimeInput, IntegrationCapabilityId, IntegrationSnapshot, LanguageModelStatus, MailDraftInput, Meeting, MeetingAnalysis, MeetingTranscript, Organization, OrganizationMember, Person, ProcessingJob, Project, ProjectMailItem, SpeechCloudStatus, SpeechProvider, Task, TranscriptSegment, VocabularyCandidate, VocabularySet, VocabularyTerm } from "./types";
 
 export type WorkbenchArea = "organization-overview" | "projects" | "people" | "integrations" | "project-overview" | "threads" | "meetings" | "documents" | "communication" | "vocabulary";
 
@@ -124,20 +124,127 @@ function ProjectAction({ icon: Icon, title, text, status, onClick }: { icon: typ
   return <button className="project-action" onClick={onClick}><span className="project-action-icon"><Icon size={18} /></span><span><strong>{title}</strong><small>{text}</small></span><span className={`status-pill ${status === "Ready" ? "ready" : "planned"}`}>{status}</span><ArrowRight size={15} /></button>;
 }
 
-export function CommunicationWorkspace({ project, workspace, onIntegrations }: { project: Project; workspace: Workspace; onIntegrations: () => void }) {
-  const [channel, setChannel] = useState("Email");
-  const [intent, setIntent] = useState("Project update");
-  const [draft, setDraft] = useState("");
-  const channels = [{ name: "Email", icon: Mail }, { name: "WhatsApp", icon: MessageSquareText }, { name: "Slack", icon: MessageSquareText }, { name: "Phone call", icon: Phone }, { name: "Facebook", icon: Send }];
-  return <WorkspacePage eyebrow={projectPath(project, workspace)} title="Communication" description="Prepare project communication by intent and recipient. Sending and calling remain disabled until the matching organisation integration is connected.">
-    <div className="communication-layout"><section className="surface-card communication-composer"><div className="surface-card-heading"><div><p className="eyebrow">Action preview</p><h2>Prepare communication</h2></div><span className="status-pill planned">Not connected</span></div>
-      <label><span>Purpose</span><select value={intent} onChange={(event) => setIntent(event.target.value)}><option>Project update</option><option>Instruction</option><option>Request</option><option>Question</option><option>Clarification</option><option>Decision confirmation</option></select></label>
-      <div className="communication-field"><span className="field-label">Channel</span><div className="channel-picker">{channels.map(({ name, icon: Icon }) => <button key={name} className={channel === name ? "active" : ""} onClick={() => setChannel(name)}><Icon size={15} />{name}</button>)}</div></div>
-      <label><span>Recipient</span><input placeholder="Choose a person or enter an address after the integration is connected" disabled /></label>
-      <label><span>Message or call brief</span><textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={`What should this ${intent.toLowerCase()} communicate?`} /></label>
-      <div className="communication-actions"><button className="secondary-button" onClick={onIntegrations}><Plug size={14} />Manage integrations</button><button className="primary-button" disabled><Send size={14} />Connect {channel} to continue</button></div>
-    </section><aside className="surface-card delivery-preview"><p className="eyebrow">Designed workflow</p><h2>Controlled, not automatic by surprise</h2><ol><li><strong>Describe the intent</strong><span>Update, instruction, question, request or clarification.</span></li><li><strong>Select people and context</strong><span>Threadbox proposes relevant project facts and attachments.</span></li><li><strong>Review the exact action</strong><span>You see the recipient, channel and final message or call brief.</span></li><li><strong>Send and retain the outcome</strong><span>The delivery result and any reply return to the project activity.</span></li></ol></aside></div>
+export function CommunicationWorkspace({ project, organization, workspace, onIntegrations, onError }: { project: Project; organization: Organization; workspace: Workspace; onIntegrations: () => void; onError: (message: string) => void }) {
+  const [connections, setConnections] = useState<IntegrationSnapshot[]>([]);
+  const [connectionId, setConnectionId] = useState("");
+  const [messages, setMessages] = useState<ExternalMailMessage[]>([]);
+  const [projectMail, setProjectMail] = useState<ProjectMailItem[]>([]);
+  const [selected, setSelected] = useState<ExternalMailMessage | null>(null);
+  const [labelId, setLabelId] = useState("INBOX");
+  const [labels, setLabels] = useState<Array<{ id: string; name: string }>>([]);
+  const [query, setQuery] = useState("");
+  const [mode, setMode] = useState<"mailbox" | "compose" | "project">("mailbox");
+  const [to, setTo] = useState("");
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [replyContext, setReplyContext] = useState<ExternalMailMessage | null>(null);
+  const [preview, setPreview] = useState<MailDraftInput | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [fetchedAttachments, setFetchedAttachments] = useState<Record<string, string>>({});
+  const selectedConnection = connections.find((item) => item.connection.id === connectionId) ?? null;
+  const hasCapability = (id: IntegrationCapabilityId) => selectedConnection?.capabilities.some((item) => item.capability === id && item.status === "granted") ?? false;
+  const canReadHeaders = hasCapability("mail_metadata_read") || hasCapability("mail_content_read");
+
+  const loadFoundation = useCallback(async () => {
+    try {
+      const [nextConnections, imported] = await Promise.all([api.listIntegrationConnections(organization.id), api.listProjectMail(project.id)]);
+      const googleConnections = nextConnections.filter((item) => item.connection.provider === "google");
+      setConnections(googleConnections);
+      setConnectionId((current) => googleConnections.some((item) => item.connection.id === current) ? current : googleConnections[0]?.connection.id ?? "");
+      setProjectMail(imported);
+    } catch (reason) { onError(String(reason)); }
+  }, [onError, organization.id, project.id]);
+  useEffect(() => { void loadFoundation(); }, [loadFoundation]);
+
+  const loadMailbox = useCallback(async () => {
+    if (!connectionId || !canReadHeaders) return;
+    setBusy(true);
+    try {
+      const [mailPage, nextLabels] = await Promise.all([
+        api.listGoogleMail({ connectionId, labelId: labelId || null, query: query.trim() || null, maxResults: 30, pageToken: null }),
+        api.listGoogleMailLabels(connectionId),
+      ]);
+      setMessages(mailPage.messages);
+      setLabels(nextLabels.map(({ id, name }) => ({ id, name })));
+      setNotice(`${mailPage.messages.length} recent headers loaded. Message bodies and attachments were not downloaded.`);
+    } catch (reason) { onError(String(reason)); }
+    finally { setBusy(false); }
+  }, [canReadHeaders, connectionId, labelId, onError, query]);
+  useEffect(() => { if (connectionId && canReadHeaders) void loadMailbox(); }, [connectionId]);
+
+  async function openMessage(message: ExternalMailMessage) {
+    setSelected(message);
+    if (!hasCapability("mail_content_read")) return;
+    setBusy(true);
+    try { setSelected(await api.getGoogleMailMessage(connectionId, message.id)); }
+    catch (reason) { onError(String(reason)); }
+    finally { setBusy(false); }
+  }
+  async function importMessage() {
+    if (!selected) return;
+    setBusy(true);
+    try {
+      await api.importGoogleMailMessage(connectionId, project.id, selected);
+      setProjectMail(await api.listProjectMail(project.id));
+      setNotice("Email linked to this project.");
+    } catch (reason) { onError(String(reason)); }
+    finally { setBusy(false); }
+  }
+  function replyTo(message: ExternalMailMessage) {
+    setReplyContext(message);
+    setTo(extractEmailAddress(message.from));
+    setSubject(/^re:/i.test(message.subject) ? message.subject : `Re: ${message.subject}`);
+    setBody("");
+    setPreview(null);
+    setMode("compose");
+  }
+  function preparePreview() {
+    const recipients = to.split(/[,;]/).map((item) => item.trim()).filter(Boolean);
+    if (!recipients.length || !subject.trim() || !body.trim()) return;
+    setPreview({ organizationId: organization.id, projectId: project.id, connectionId, to: recipients, cc: [], bcc: [], subject: subject.trim(), body, threadId: replyContext?.threadId ?? null, inReplyTo: replyContext?.messageId || null, references: replyContext ? [replyContext.references, replyContext.messageId].filter(Boolean).join(" ") || null : null });
+  }
+  async function executeMail(sendNow: boolean) {
+    if (!preview) return;
+    setBusy(true);
+    try {
+      const result = sendNow ? await api.sendGoogleMail(preview) : await api.createGoogleMailDraft(preview);
+      setNotice(sendNow ? `Email accepted by Gmail (${result.id}).` : `Draft created in Gmail (${result.draftId}).`);
+      setPreview(null); setTo(""); setSubject(""); setBody(""); setReplyContext(null);
+    } catch (reason) { onError(String(reason)); }
+    finally { setBusy(false); }
+  }
+  async function fetchAttachment(message: ExternalMailMessage, attachmentId: string, mimeType: string) {
+    setBusy(true);
+    try { setFetchedAttachments((current) => ({ ...current, [attachmentId]: "loading" })); const data = await api.getGoogleMailAttachment(connectionId, message.id, attachmentId, mimeType); setFetchedAttachments((current) => ({ ...current, [attachmentId]: data })); }
+    catch (reason) { setFetchedAttachments((current) => { const next = { ...current }; delete next[attachmentId]; return next; }); onError(String(reason)); }
+    finally { setBusy(false); }
+  }
+  const channels = [{ name: "Email", icon: Mail, ready: Boolean(selectedConnection) }, { name: "Slack", icon: MessageSquareText, ready: false }, { name: "Phone call", icon: Phone, ready: false }];
+  return <WorkspacePage eyebrow={projectPath(project, workspace)} title="Communication" description="Read selected project email and send reviewed messages without turning Threadbox into a full mailbox client.">
+    <div className="channel-picker communication-channels">{channels.map(({ name, icon: Icon, ready }) => <button key={name} className={name === "Email" ? "active" : ""} disabled={name !== "Email"}><Icon size={15} />{name}<small>{ready ? "Ready" : "Later"}</small></button>)}</div>
+    {!selectedConnection ? <section className="surface-card"><EmptyPanel title="Connect Google email" text="Connect a Google account and grant only the email permissions you need." /><button className="secondary-button" onClick={onIntegrations}><Plug size={14} />Manage integrations</button></section> : <>
+      <div className="mail-toolbar"><label><span>Account</span><select value={connectionId} onChange={(event) => { setConnectionId(event.target.value); setSelected(null); }} >{connections.map((item) => <option key={item.connection.id} value={item.connection.id}>{item.connection.accountIdentifier}</option>)}</select></label><div className="channel-picker"><button className={mode === "mailbox" ? "active" : ""} onClick={() => setMode("mailbox")}>Mailbox</button><button className={mode === "compose" ? "active" : ""} onClick={() => setMode("compose")}>Compose</button><button className={mode === "project" ? "active" : ""} onClick={() => setMode("project")}>Project email <small>{projectMail.length}</small></button></div><button className="text-button" onClick={onIntegrations}>Permissions</button></div>
+      {notice && <p className="mail-notice">{notice}</p>}
+      {mode === "mailbox" && !canReadHeaders && <section className="surface-card"><EmptyPanel title="Mailbox reading is off" text="Grant Read email metadata to browse headers, or Read email content to open bodies and search." /><button className="secondary-button" onClick={onIntegrations}>Manage permissions</button></section>}
+      {mode === "mailbox" && canReadHeaders && <div className="mailbox-layout"><section className="surface-card mail-list-panel"><div className="mail-filters"><select aria-label="Mail label" value={labelId} onChange={(event) => setLabelId(event.target.value)}><option value="INBOX">Inbox</option>{labels.filter((label) => label.id !== "INBOX").map((label) => <option key={label.id} value={label.id}>{label.name}</option>)}</select><input value={query} disabled={!hasCapability("mail_content_read")} onChange={(event) => setQuery(event.target.value)} placeholder={hasCapability("mail_content_read") ? "Gmail search" : "Search needs content permission"} /><button className="secondary-button" disabled={busy} onClick={() => void loadMailbox()}>Refresh</button></div><div className="mail-message-list">{messages.map((message) => <button key={message.id} className={selected?.id === message.id ? "active" : ""} onClick={() => void openMessage(message)}><strong>{message.subject || "(no subject)"}</strong><span>{message.from}</span><small>{message.snippet}</small></button>)}{!messages.length && !busy && <EmptyPanel title="No messages in this bounded view" text="Threadbox requests at most 30 headers at a time." />}</div></section><section className="surface-card mail-reader">{selected ? <><div className="surface-card-heading"><div><p className="eyebrow">{formatMailDate(selected.internalDate)}</p><h2>{selected.subject || "(no subject)"}</h2><p>From {selected.from}</p></div><div className="mail-reader-actions"><button className="secondary-button" onClick={() => replyTo(selected)}>Reply</button><button className="primary-button" disabled={busy} onClick={() => void importMessage()}>Link to project</button></div></div>{selected.bodyText || selected.bodyHtml ? <pre>{selected.bodyText ?? selected.bodyHtml}</pre> : <div className="mail-content-locked"><p>{selected.snippet}</p><small>{hasCapability("mail_content_read") ? "No readable text body was returned." : "Only headers and the provider snippet are available. Grant content access to fetch the body."}</small></div>}{selected.attachments.length > 0 && <div className="mail-attachments"><p className="eyebrow">Attachments are fetched only when requested</p>{selected.attachments.map((attachment) => <div key={attachment.attachmentId}><span><Paperclip size={13} />{attachment.filename} <small>{formatBytes(attachment.sizeBytes)}</small></span>{fetchedAttachments[attachment.attachmentId]?.startsWith("data:") ? <a className="secondary-button" href={fetchedAttachments[attachment.attachmentId]} download={attachment.filename}>Save</a> : <button className="secondary-button" disabled={busy || !hasCapability("mail_content_read")} onClick={() => void fetchAttachment(selected, attachment.attachmentId, attachment.mimeType)}>{fetchedAttachments[attachment.attachmentId] === "loading" ? "Fetching..." : "Fetch"}</button>}</div>)}</div>}</> : <EmptyPanel title="Choose an email" text="Headers load first. Opening a message fetches its body only when content access is enabled." />}</section></div>}
+      {mode === "compose" && <div className="communication-layout"><section className="surface-card communication-composer"><div className="surface-card-heading"><div><p className="eyebrow">{replyContext ? "Reply" : "New email"}</p><h2>Prepare a reviewed message</h2></div>{replyContext && <button className="text-button" onClick={() => { setReplyContext(null); setTo(""); setSubject(""); }}>Clear reply</button>}</div><label><span>To</span><input value={to} onChange={(event) => { setTo(event.target.value); setPreview(null); }} placeholder="person@example.com" /></label><label><span>Subject</span><input value={subject} onChange={(event) => { setSubject(event.target.value); setPreview(null); }} /></label><label><span>Message</span><textarea value={body} onChange={(event) => { setBody(event.target.value); setPreview(null); }} placeholder="Write the exact message that should be sent." /></label><div className="communication-actions"><button className="primary-button" disabled={!to.trim() || !subject.trim() || !body.trim()} onClick={preparePreview}>Review exact email</button></div></section><aside className="surface-card delivery-preview">{preview ? <><p className="eyebrow">Exact approved payload</p><h2>{preview.subject}</h2><p><strong>From:</strong> {selectedConnection.connection.accountIdentifier}<br /><strong>To:</strong> {preview.to.join(", ")}<br /><strong>Project:</strong> {project.name}</p><pre>{preview.body}</pre><div className="communication-actions"><button className="secondary-button" disabled={busy || !hasCapability("mail_compose")} title={!hasCapability("mail_compose") ? "Grant Create Gmail drafts" : ""} onClick={() => void executeMail(false)}>Create Gmail draft</button><button className="primary-button" disabled={busy || !hasCapability("mail_send")} title={!hasCapability("mail_send") ? "Grant Send email" : ""} onClick={() => void executeMail(true)}><Send size={14} />Send now</button></div></> : <><p className="eyebrow">Safety boundary</p><h2>Nothing leaves the computer before review</h2><ol><li><strong>Write in project context</strong><span>The organisation and project are attached to the action.</span></li><li><strong>Review the exact payload</strong><span>Recipient, subject and body are frozen for the approved attempt.</span></li><li><strong>Choose draft or send</strong><span>Each operation has its own local capability and audit result.</span></li></ol></>}</aside></div>}
+      {mode === "project" && <section className="surface-card project-mail-list"><div className="surface-card-heading"><div><p className="eyebrow">Project memory</p><h2>Linked email</h2></div></div>{projectMail.map((message) => <article key={message.id}><div><strong>{message.subject || "(no subject)"}</strong><span>{message.from}</span><small>{formatMailDate(message.internalDate)}</small></div><p>{message.bodyText ?? message.snippet}</p></article>)}{!projectMail.length && <EmptyPanel title="No linked email" text="Choose a mailbox message and link only the material this project needs." />}</section>}
+    </>}
   </WorkspacePage>;
+}
+
+function extractEmailAddress(value: string): string {
+  return value.match(/<([^>]+)>/)?.[1] ?? value.trim();
+}
+
+function formatMailDate(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
+function formatBytes(value: number): string {
+  return value < 1024 ? `${value} B` : value < 1024 * 1024 ? `${Math.round(value / 1024)} KB` : `${(value / 1024 / 1024).toFixed(1)} MB`;
 }
 
 export function PeopleWorkspace({ organization, onError }: { organization: Organization; onError: (message: string) => void }) {
@@ -620,12 +727,11 @@ export function IntegrationsWorkspace({ organization, onError }: { organization:
     finally { setBusy(null); }
   }
   const integrations = [
-    { name: "Email", kind: "Messages", text: "Send reviewed updates, requests and instructions, then retain delivery and replies.", icon: Mail, status: "Preview" },
     { name: "Slack", kind: "Workspace", text: "Send messages, ask questions and bring replies back into the project context.", icon: MessageSquareText, status: "Preview" },
     { name: "Phone", kind: "Calls", text: "Place a reviewed call from a prepared brief and retain its result or recording.", icon: Phone, status: "Research" },
   ];
   return <WorkspacePage eyebrow="Organisation" title="Integrations" description={`Connections available to ${organization.name}. Each integration clearly states what it reads, creates and retains.`}>
-    <section className="surface-card google-integration"><div className="surface-card-heading"><div><p className="eyebrow">Calendar</p><h2>Google Calendar</h2><p>Connect an account first, then enable only the calendar outcomes you need.</p></div><span className="status-pill ready">Available</span></div>
+    <section className="surface-card google-integration"><div className="surface-card-heading"><div><p className="eyebrow">Calendar and email</p><h2>Google Workspace</h2><p>Connect an account once, then enable only the calendar and Gmail outcomes you need.</p></div><span className="status-pill ready">Available</span></div>
       <details className="oauth-client-settings" open={!settings?.googleOauthClientId}><summary>Google app configuration</summary><p>Development builds need a Desktop app OAuth client ID. Release builds will include the verified Threadbox client ID, so end users will not configure this.</p><div><input value={clientId} onChange={(event) => setClientId(event.target.value)} placeholder="123456.apps.googleusercontent.com" /><button className="secondary-button" disabled={!settings || !clientId.trim() || busy === "client-id"} onClick={() => void saveClientId()}>Save client ID</button></div></details>
       <div className="google-connections">{connections.filter((item) => item.connection.provider === "google").map((snapshot) => <GoogleConnectionCard key={snapshot.connection.id} snapshot={snapshot} busy={busy} onReconnect={() => void connect(snapshot.connection.id)} onCapability={(capability, granted) => void changeCapability(snapshot.connection.id, capability, granted)} onDisconnect={() => void disconnect(snapshot.connection.id)} />)}
         <button className="secondary-button google-connect" disabled={!settings?.googleOauthClientId || busy !== null} onClick={() => void connect()}><Plus size={15} />{busy === "connect" ? "Finish in browser..." : "Connect Google account"}</button>
@@ -640,6 +746,10 @@ const googleCapabilities: Array<{ id: IntegrationCapabilityId; title: string; te
   { id: "calendar_read", title: "Read calendar", text: "List calendars and read selected event details." },
   { id: "calendar_write", title: "Create calendar events", text: "Create reviewed events. Google's scope also technically permits viewing and editing events." },
   { id: "calendar_free_busy", title: "Check availability", text: "Read busy intervals without importing event titles or descriptions." },
+  { id: "mail_metadata_read", title: "Read email metadata", text: "Synchronise bounded message headers, labels and provider snippets without fetching bodies." },
+  { id: "mail_content_read", title: "Read email content", text: "Fetch a selected message body, search Gmail and fetch requested attachments." },
+  { id: "mail_compose", title: "Create Gmail drafts", text: "Create a reviewed draft in Gmail without granting Threadbox mailbox reading." },
+  { id: "mail_send", title: "Send email", text: "Send the exact reviewed message without granting Threadbox mailbox reading." },
 ];
 
 function GoogleConnectionCard({ snapshot, busy, onReconnect, onCapability, onDisconnect }: { snapshot: IntegrationSnapshot; busy: string | null; onReconnect: () => void; onCapability: (capability: IntegrationCapabilityId, granted: boolean) => void; onDisconnect: () => void }) {

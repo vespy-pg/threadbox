@@ -3,6 +3,7 @@ mod cloud_speech;
 mod database;
 mod documents;
 mod error;
+mod gmail;
 mod google;
 mod google_calendar;
 mod integration;
@@ -27,12 +28,18 @@ use base64::Engine;
 use database::{Database, Task, TaskInput};
 use documents::{ProjectDocument, ProjectDocumentInput};
 use error::AppResult;
+use gmail::{
+    ExternalMailLabel, ExternalMailMessage, MailActionResult, MailDraftInput, MailListInput,
+    MailPage, MailSyncResult, ProjectMailItem,
+};
 use google_calendar::{
     AvailableSlot, CalendarEventDraft, ExternalCalendar, ExternalCalendarEvent, FindTimeInput,
 };
 use integrations::{
     ExternalActionInput, IntegrationConnectionInput, IntegrationSnapshot,
     CAPABILITY_CALENDAR_FREE_BUSY, CAPABILITY_CALENDAR_READ, CAPABILITY_CALENDAR_WRITE,
+    CAPABILITY_MAIL_COMPOSE, CAPABILITY_MAIL_CONTENT_READ, CAPABILITY_MAIL_METADATA_READ,
+    CAPABILITY_MAIL_SEND,
 };
 use meetings::{Meeting, MeetingInput};
 use native_audio::{
@@ -77,8 +84,12 @@ fn google_capability_scope(capability: &str) -> AppResult<&'static str> {
         CAPABILITY_CALENDAR_READ => Ok(google::SCOPE_CALENDAR_READ),
         CAPABILITY_CALENDAR_WRITE => Ok(google::SCOPE_CALENDAR_WRITE),
         CAPABILITY_CALENDAR_FREE_BUSY => Ok(google::SCOPE_CALENDAR_FREE_BUSY),
+        CAPABILITY_MAIL_METADATA_READ => Ok(google::SCOPE_GMAIL_METADATA),
+        CAPABILITY_MAIL_CONTENT_READ => Ok(google::SCOPE_GMAIL_READONLY),
+        CAPABILITY_MAIL_COMPOSE => Ok(google::SCOPE_GMAIL_COMPOSE),
+        CAPABILITY_MAIL_SEND => Ok(google::SCOPE_GMAIL_SEND),
         _ => Err(error::AppError::InvalidInput(format!(
-            "Unknown Google Calendar capability: {capability}"
+            "Unknown Google capability: {capability}"
         ))),
     }
 }
@@ -88,17 +99,44 @@ fn google_scopes(
     added: Option<&str>,
 ) -> AppResult<Vec<&'static str>> {
     let mut scopes = google::SCOPE_IDENTITY.to_vec();
-    for capability in snapshot
+    let capabilities = snapshot
         .capabilities
         .iter()
         .filter(|item| item.status == "granted")
         .map(|item| item.capability.as_str())
         .chain(added)
-    {
-        let scope = google_capability_scope(capability)?;
-        if !scopes.contains(&scope) {
-            scopes.push(scope);
+        .collect::<Vec<_>>();
+    for capability in &capabilities {
+        match *capability {
+            CAPABILITY_CALENDAR_READ
+            | CAPABILITY_CALENDAR_WRITE
+            | CAPABILITY_CALENDAR_FREE_BUSY => {
+                let scope = google_capability_scope(capability)?;
+                if !scopes.contains(&scope) {
+                    scopes.push(scope);
+                }
+            }
+            CAPABILITY_MAIL_METADATA_READ
+            | CAPABILITY_MAIL_CONTENT_READ
+            | CAPABILITY_MAIL_COMPOSE
+            | CAPABILITY_MAIL_SEND => {}
+            _ => {
+                return Err(error::AppError::InvalidInput(format!(
+                    "Unknown Google capability: {capability}"
+                )))
+            }
         }
+    }
+    let has = |capability: &str| capabilities.contains(&capability);
+    if has(CAPABILITY_MAIL_CONTENT_READ) {
+        scopes.push(google::SCOPE_GMAIL_READONLY);
+    } else if has(CAPABILITY_MAIL_METADATA_READ) {
+        scopes.push(google::SCOPE_GMAIL_METADATA);
+    }
+    if has(CAPABILITY_MAIL_COMPOSE) {
+        scopes.push(google::SCOPE_GMAIL_COMPOSE);
+    } else if has(CAPABILITY_MAIL_SEND) {
+        scopes.push(google::SCOPE_GMAIL_SEND);
     }
     Ok(scopes)
 }
@@ -855,6 +893,11 @@ async fn grant_google_capability(
                 "Google authorized a different account".into(),
             ));
         }
+        if !token.grants(&scopes) {
+            return Err(error::AppError::InvalidInput(
+                "Google did not grant every permission selected in Threadbox".into(),
+            ));
+        }
         google::store_authorized_token(&connection_id, token)?;
         database.set_integration_capability(&connection_id, &capability, scope, true)
     })
@@ -1001,6 +1044,174 @@ async fn find_google_calendar_time(
     let database = database.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         database.find_google_calendar_time(&client_id, &input)
+    })
+    .await
+    .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
+}
+
+#[tauri::command]
+async fn list_google_mail_labels(
+    database: tauri::State<'_, Database>,
+    connection_id: String,
+) -> AppResult<Vec<ExternalMailLabel>> {
+    let client_id = configured_google_client_id()?;
+    let database = database.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        database.google_mail_labels(&connection_id, &client_id)
+    })
+    .await
+    .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
+}
+
+#[tauri::command]
+async fn list_google_mail(
+    database: tauri::State<'_, Database>,
+    input: MailListInput,
+) -> AppResult<MailPage> {
+    let client_id = configured_google_client_id()?;
+    let database = database.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || database.google_mail_page(&client_id, &input))
+        .await
+        .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
+}
+
+#[tauri::command]
+async fn sync_google_mail(
+    database: tauri::State<'_, Database>,
+    connection_id: String,
+) -> AppResult<MailSyncResult> {
+    let client_id = configured_google_client_id()?;
+    let database = database.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        database.sync_google_mail_headers(&connection_id, &client_id)
+    })
+    .await
+    .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
+}
+
+#[tauri::command]
+async fn get_google_mail_message(
+    database: tauri::State<'_, Database>,
+    connection_id: String,
+    message_id: String,
+) -> AppResult<ExternalMailMessage> {
+    let client_id = configured_google_client_id()?;
+    let database = database.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        database.google_mail_message(&connection_id, &client_id, &message_id)
+    })
+    .await
+    .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
+}
+
+#[tauri::command]
+async fn get_google_mail_attachment(
+    database: tauri::State<'_, Database>,
+    connection_id: String,
+    message_id: String,
+    attachment_id: String,
+    mime_type: String,
+) -> AppResult<String> {
+    let client_id = configured_google_client_id()?;
+    let database = database.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        database.google_mail_attachment(
+            &connection_id,
+            &client_id,
+            &message_id,
+            &attachment_id,
+            &mime_type,
+        )
+    })
+    .await
+    .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
+}
+
+#[tauri::command]
+fn import_google_mail_message(
+    database: tauri::State<'_, Database>,
+    connection_id: String,
+    project_id: String,
+    message: ExternalMailMessage,
+) -> AppResult<ProjectMailItem> {
+    database.import_google_mail_message(&connection_id, &project_id, &message)
+}
+
+#[tauri::command]
+fn list_project_mail(
+    database: tauri::State<'_, Database>,
+    project_id: String,
+) -> AppResult<Vec<ProjectMailItem>> {
+    database.project_mail_items(&project_id)
+}
+
+#[tauri::command]
+async fn create_google_mail_draft(
+    database: tauri::State<'_, Database>,
+    input: MailDraftInput,
+) -> AppResult<MailActionResult> {
+    execute_google_mail_action(database.inner().clone(), input, false).await
+}
+
+#[tauri::command]
+async fn send_google_mail(
+    database: tauri::State<'_, Database>,
+    input: MailDraftInput,
+) -> AppResult<MailActionResult> {
+    execute_google_mail_action(database.inner().clone(), input, true).await
+}
+
+async fn execute_google_mail_action(
+    database: Database,
+    input: MailDraftInput,
+    send: bool,
+) -> AppResult<MailActionResult> {
+    let client_id = configured_google_client_id()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let capability = if send {
+            CAPABILITY_MAIL_SEND
+        } else {
+            CAPABILITY_MAIL_COMPOSE
+        };
+        let action = database.create_approved_external_action(&ExternalActionInput {
+            organization_id: input.organization_id.clone(),
+            project_id: input.project_id.clone(),
+            connection_id: input.connection_id.clone(),
+            capability: capability.into(),
+            kind: if send {
+                "mail.message.send".into()
+            } else {
+                "mail.draft.create".into()
+            },
+            payload: serde_json::to_value(&input)?,
+        })?;
+        let attempt = database.start_external_action_attempt(&action.id)?;
+        let result = if send {
+            database.send_google_mail(&client_id, &input)
+        } else {
+            database.create_google_mail_draft(&client_id, &input)
+        };
+        match result {
+            Ok(result) => {
+                let receipt = result.draft_id.as_deref().unwrap_or(&result.id);
+                database.finish_external_action_attempt(
+                    &action.id,
+                    attempt,
+                    Some(receipt),
+                    None,
+                )?;
+                Ok(result)
+            }
+            Err(error) => {
+                database.finish_external_action_attempt(
+                    &action.id,
+                    attempt,
+                    None,
+                    Some(&error.to_string()),
+                )?;
+                Err(error)
+            }
+        }
     })
     .await
     .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
@@ -1221,6 +1432,15 @@ pub fn run() {
             create_google_calendar_event,
             import_google_calendar_event,
             find_google_calendar_time,
+            list_google_mail_labels,
+            list_google_mail,
+            sync_google_mail,
+            get_google_mail_message,
+            get_google_mail_attachment,
+            import_google_mail_message,
+            list_project_mail,
+            create_google_mail_draft,
+            send_google_mail,
             capture_screenshot,
             start_native_recording,
             warm_up_audio,

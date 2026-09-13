@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { readImage } from "@tauri-apps/plugin-clipboard-manager";
 import { setMediaRoot } from "./media";
-import type { AppSettings, ApiProvider, AvailableSlot, CalendarEventDraft, ExternalCalendar, ExternalCalendarEvent, FindTimeInput, IntegrationCapabilityId, IntegrationSnapshot, LanguageModelStatus, Meeting, MeetingAnalysis, MeetingInput, MeetingTranscript, ModelStatus, Organization, OrganizationMember, Person, ProcessingJob, Project, ProjectDocument, ProjectDocumentInput, ProjectLanguage, ProviderProbe, SpeechCloudStatus, SpeechModelId, SpeechProvider, Task, TaskInput, TaskPatch, VocabularyCandidate, VocabularySet, VocabularySetInput, VocabularyTerm, VocabularyTermInput } from "./types";
+import type { AppSettings, ApiProvider, AvailableSlot, CalendarEventDraft, ExternalCalendar, ExternalCalendarEvent, ExternalMailLabel, ExternalMailMessage, FindTimeInput, IntegrationCapabilityId, IntegrationSnapshot, LanguageModelStatus, MailActionResult, MailDraftInput, MailListInput, MailPage, MailSyncResult, Meeting, MeetingAnalysis, MeetingInput, MeetingTranscript, ModelStatus, Organization, OrganizationMember, Person, ProcessingJob, Project, ProjectDocument, ProjectDocumentInput, ProjectLanguage, ProjectMailItem, ProviderProbe, SpeechCloudStatus, SpeechModelId, SpeechProvider, Task, TaskInput, TaskPatch, VocabularyCandidate, VocabularySet, VocabularySetInput, VocabularyTerm, VocabularyTermInput } from "./types";
 
 const inTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 
@@ -434,6 +434,42 @@ export const api = {
 
   async findGoogleCalendarTime(input: FindTimeInput): Promise<AvailableSlot[]> {
     return invoke<AvailableSlot[]>("find_google_calendar_time", { input });
+  },
+
+  async listGoogleMailLabels(connectionId: string): Promise<ExternalMailLabel[]> {
+    return invoke<ExternalMailLabel[]>("list_google_mail_labels", { connectionId });
+  },
+
+  async listGoogleMail(input: MailListInput): Promise<MailPage> {
+    return invoke<MailPage>("list_google_mail", { input });
+  },
+
+  async syncGoogleMail(connectionId: string): Promise<MailSyncResult> {
+    return invoke<MailSyncResult>("sync_google_mail", { connectionId });
+  },
+
+  async getGoogleMailMessage(connectionId: string, messageId: string): Promise<ExternalMailMessage> {
+    return invoke<ExternalMailMessage>("get_google_mail_message", { connectionId, messageId });
+  },
+
+  async getGoogleMailAttachment(connectionId: string, messageId: string, attachmentId: string, mimeType: string): Promise<string> {
+    return invoke<string>("get_google_mail_attachment", { connectionId, messageId, attachmentId, mimeType });
+  },
+
+  async importGoogleMailMessage(connectionId: string, projectId: string, message: ExternalMailMessage): Promise<ProjectMailItem> {
+    return invoke<ProjectMailItem>("import_google_mail_message", { connectionId, projectId, message });
+  },
+
+  async listProjectMail(projectId: string): Promise<ProjectMailItem[]> {
+    return invoke<ProjectMailItem[]>("list_project_mail", { projectId });
+  },
+
+  async createGoogleMailDraft(input: MailDraftInput): Promise<MailActionResult> {
+    return invoke<MailActionResult>("create_google_mail_draft", { input });
+  },
+
+  async sendGoogleMail(input: MailDraftInput): Promise<MailActionResult> {
+    return invoke<MailActionResult>("send_google_mail", { input });
   },
 
   async captureScreenshot(): Promise<string> {

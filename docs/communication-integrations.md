@@ -1,7 +1,8 @@
 # Communication integrations
 
-Status: feasibility and implementation boundary, updated on 2026-09-14. No external communication is
-executed yet. The active release scope is defined in `first-useful-release-plan.md`.
+Status: implementation boundary, updated on 2026-09-14. Google Calendar and Gmail now have desktop
+adapters, while other external communication remains planned. The active release scope is defined in
+`first-useful-release-plan.md`.
 
 ## Product boundary
 
@@ -22,7 +23,7 @@ The application must never turn a preview control into a real external side effe
 | Channel | Feasibility | Provider boundary | Recommended first scope |
 |---|---|---|---|
 | Google Calendar | High | Google OAuth and Calendar API | Import project meetings and create reviewed events |
-| Gmail | High | Google OAuth and Gmail API | Draft and send reviewed email from the connected account |
+| Gmail | Implemented, awaiting credentialed verification | Google OAuth and Gmail API | Bounded reading, project links, drafts and reviewed sending |
 | Slack messages | High | Slack app, OAuth and scoped bot token | Post to selected channels and direct-message conversations |
 | Slack calls | Partial | Slack Calls API only represents an external call in Slack | Attach a Threadbox or telephony call link, do not treat Slack as the media provider |
 | Email beyond Gmail | High | Microsoft Graph or standard SMTP and IMAP per account type | Add after the Google flow proves the shared action model |
@@ -85,6 +86,15 @@ authorization for installed apps](https://developers.google.com/identity/protoco
 adding one capability reauthorizes the union of scopes currently
 enabled for that connection. Desktop OAuth uses PKCE, the system browser and a random loopback
 callback, never asks the user to paste account passwords into Threadbox.
+
+Gmail keeps metadata reading, content reading, draft creation and sending as separate Threadbox
+capabilities. The adapter initially lists at most 30 headers in the project interface and uses a
+stored Gmail history ID for later changes. An expired history ID triggers another bounded inbox
+listing, not a whole-mailbox download. Opening a message fetches its body only with content access,
+and every attachment has its own explicit fetch action. Gmail search also needs content access
+because the API does not permit its `q` parameter under the metadata-only scope. Outbound messages
+are RFC-compliant MIME payloads encoded for the Gmail API; the exact recipient, subject and body are
+stored with the reviewed external action before Gmail is called.
 
 ## Local language model on the current computer
 
