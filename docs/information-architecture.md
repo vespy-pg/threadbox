@@ -24,6 +24,8 @@ A project is selected within an organisation. Its stable surfaces are:
 - **Threads** - the task and follow-up inbox that formed the original Threadbox application.
 - **Meetings** - calendar events, recordings, transcripts, notes, decisions and action items.
 - **Documents** - notes, links and files used by people and as assistant context.
+- **Communication** - intent-first preparation of messages and calls across connected channels.
+- **Vocabulary** - terminology shared by transcription, analysis and project work.
 
 The global inbox stays outside projects. It contains captured work that has not been filed yet and is
 not a substitute for a project.
@@ -33,6 +35,11 @@ not a substitute for a project.
 New work domains must become named organisation or project surfaces according to their scope. They do
 not accumulate as unrelated dialogs in the sidebar. Automatic calls and work distribution are expected
 future domains; the shell must accommodate them without another navigation redesign.
+
+The selected project's modules are nested directly beneath it in the sidebar. A persistent context bar
+shows the clickable organisation, project ancestry and current module, with a hierarchical Back action.
+Provider names such as WhatsApp or Slack belong inside Communication and organisation Integrations,
+not as permanent project navigation items.
 
 ## Calendar boundary
 

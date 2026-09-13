@@ -7,6 +7,8 @@ describes shipped behaviour unless it says so.
   deliberately out of scope for now.
 - `information-architecture.md` - the organisation-first application shell and the stable homes for
   current and future work modules.
+- `project-workflows.md` - project scenarios for notes, delegation, meetings, messages, calls and
+  reviewed automation, plus the shared interaction model behind them.
 - `domain-model.md` - organisations, projects, people, documents, and what sharing between projects
   means for a single user.
 - `model-providers.md` - speech recognition and language model options, including why signing in to a

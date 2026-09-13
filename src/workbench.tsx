@@ -1,18 +1,33 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowRight, BookOpen, BriefcaseBusiness, CalendarDays, CheckCircle2, Clock3, FileText, FolderKanban, Inbox, LayoutDashboard, Link2, ListTodo, Mail, Mic, Play, Plus, Plug, Square, Settings2, Trash2, UserPlus, Users, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, BriefcaseBusiness, CalendarDays, CheckCircle2, ChevronDown, ChevronRight, Clock3, FileText, FolderKanban, Inbox, LayoutDashboard, ListTodo, Mail, MessageSquareText, Mic, Paperclip, Phone, Play, Plus, Plug, Send, Settings2, Square, StickyNote, Trash2, UserPlus, UserRoundCheck, Users, X } from "lucide-react";
 
 import { api } from "./api";
 import { ProjectDetail, projectPath, type Workspace } from "./projects";
 import type { LanguageModelStatus, Meeting, MeetingAnalysis, MeetingTranscript, Organization, OrganizationMember, Person, ProcessingJob, Project, Task, TranscriptSegment, VocabularyCandidate, VocabularySet, VocabularyTerm } from "./types";
 
-export type WorkbenchArea = "organization-overview" | "projects" | "people" | "integrations" | "project-overview" | "threads" | "meetings" | "documents" | "vocabulary";
+export type WorkbenchArea = "organization-overview" | "projects" | "people" | "integrations" | "project-overview" | "threads" | "meetings" | "documents" | "communication" | "vocabulary";
+
+const projectSections: Array<{ area: WorkbenchArea; label: string; icon: typeof LayoutDashboard }> = [
+  { area: "project-overview", label: "Overview", icon: LayoutDashboard },
+  { area: "threads", label: "Threads", icon: ListTodo },
+  { area: "meetings", label: "Meetings", icon: CalendarDays },
+  { area: "documents", label: "Documents", icon: FileText },
+  { area: "communication", label: "Communication", icon: MessageSquareText },
+  { area: "vocabulary", label: "Vocabulary", icon: BookOpen },
+];
+
+const areaLabels: Record<WorkbenchArea, string> = {
+  "organization-overview": "Overview", projects: "Projects", people: "People", integrations: "Integrations",
+  "project-overview": "Overview", threads: "Threads", meetings: "Meetings", documents: "Documents",
+  communication: "Communication", vocabulary: "Vocabulary",
+};
 
 export function WorkspaceNavigation({ workspace, organization, project, area, inboxCount, projectTaskCounts, onOrganization, onCreateOrganization, onProject, onArea }: { workspace: Workspace; organization: Organization | null; project: Project | null; area: WorkbenchArea; inboxCount: number; projectTaskCounts: Record<string, number>; onOrganization: (id: string | null) => void; onCreateOrganization: () => void; onProject: (id: string | null) => void; onArea: (area: WorkbenchArea) => void }) {
   const projects = organization ? workspace.projects.filter((item) => item.organizationId === organization.id) : [];
   return <>
     <div className="context-switcher">
       <span className="nav-section-label">Organisation</span>
-      <div><select value={organization?.id ?? ""} onChange={(event) => onOrganization(event.target.value || null)} aria-label="Current organisation"><option value="">Choose an organisation</option>{workspace.organizations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><button className="context-add" title="Add organisation" aria-label="Add organisation" onClick={onCreateOrganization}><Plus size={15} /></button></div>
+      <div><label className="organization-select"><select value={organization?.id ?? ""} onChange={(event) => onOrganization(event.target.value || null)} aria-label="Current organisation"><option value="">Choose an organisation</option>{workspace.organizations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><ChevronDown size={14} /></label><button className="context-add" title="Add organisation" aria-label="Add organisation" onClick={onCreateOrganization}><Plus size={15} /></button></div>
     </div>
     <nav className="workspace-navigation" aria-label="Workspace navigation">
       <button className={!project && area === "threads" ? "nav-item active" : "nav-item"} onClick={() => { onProject(null); onArea("threads"); }}><Inbox size={17} /><span>Inbox</span>{inboxCount > 0 && <span className="count">{inboxCount}</span>}</button>
@@ -24,29 +39,46 @@ export function WorkspaceNavigation({ workspace, organization, project, area, in
         <button className={area === "integrations" ? "nav-item active" : "nav-item"} onClick={() => { onProject(null); onArea("integrations"); }}><Plug size={17} /><span>Integrations</span></button>
         <span className="nav-section-label project-label">Projects</span>
         <div className="sidebar-projects">
-          {projects.filter((item) => item.parentId === null).map((item) => <SidebarProject key={item.id} project={item} allProjects={projects} selectedId={project?.id ?? null} taskCounts={projectTaskCounts} onSelect={(selected) => { onProject(selected.id); onArea("project-overview"); }} />)}
+          {projects.filter((item) => item.parentId === null).map((item) => <SidebarProject key={item.id} project={item} allProjects={projects} selectedId={project?.id ?? null} area={area} taskCounts={projectTaskCounts} onSelect={(selected) => { onProject(selected.id); onArea("project-overview"); }} onArea={onArea} />)}
           {projects.length === 0 && <button className="sidebar-empty-action" onClick={() => onArea("projects")}><Plus size={14} />Create the first project</button>}
         </div>
       </>}
     </nav>
-    {project && <nav className="project-navigation" aria-label={`${project.name} navigation`}>
-      <span className="nav-section-label">Current project</span>
-      <strong className="current-project-name">{project.name}</strong>
-      <button className={area === "project-overview" ? "nav-item active" : "nav-item"} onClick={() => onArea("project-overview")}><LayoutDashboard size={17} /><span>Overview</span></button>
-      <button className={area === "threads" ? "nav-item active" : "nav-item"} onClick={() => onArea("threads")}><ListTodo size={17} /><span>Threads</span>{(projectTaskCounts[project.id] ?? 0) > 0 && <span className="count">{projectTaskCounts[project.id]}</span>}</button>
-      <button className={area === "meetings" ? "nav-item active" : "nav-item"} onClick={() => onArea("meetings")}><CalendarDays size={17} /><span>Meetings</span></button>
-      <button className={area === "documents" ? "nav-item active" : "nav-item"} onClick={() => onArea("documents")}><FileText size={17} /><span>Documents</span></button>
-      <button className={area === "vocabulary" ? "nav-item active" : "nav-item"} onClick={() => onArea("vocabulary")}><BookOpen size={17} /><span>Vocabulary</span></button>
-    </nav>}
   </>;
 }
 
-function SidebarProject({ project, allProjects, selectedId, taskCounts, onSelect, depth = 0 }: { project: Project; allProjects: Project[]; selectedId: string | null; taskCounts: Record<string, number>; onSelect: (project: Project) => void; depth?: number }) {
+function SidebarProject({ project, allProjects, selectedId, area, taskCounts, onSelect, onArea, depth = 0 }: { project: Project; allProjects: Project[]; selectedId: string | null; area: WorkbenchArea; taskCounts: Record<string, number>; onSelect: (project: Project) => void; onArea: (area: WorkbenchArea) => void; depth?: number }) {
   const children = allProjects.filter((item) => item.parentId === project.id);
+  const selected = project.id === selectedId;
   return <div className="sidebar-project-branch">
-    <button className={project.id === selectedId ? "sidebar-project active" : "sidebar-project"} style={{ paddingLeft: `${10 + depth * 13}px` }} onClick={() => onSelect(project)}><span className="project-dot" /><span>{project.name}</span>{(taskCounts[project.id] ?? 0) > 0 && <small>{taskCounts[project.id]}</small>}</button>
-    {children.map((child) => <SidebarProject key={child.id} project={child} allProjects={allProjects} selectedId={selectedId} taskCounts={taskCounts} onSelect={onSelect} depth={depth + 1} />)}
+    <button className={selected ? "sidebar-project active" : "sidebar-project"} style={{ paddingLeft: `${10 + depth * 13}px` }} onClick={() => onSelect(project)}>{children.length > 0 ? <ChevronDown className="project-chevron" size={11} /> : <span className="project-dot" />}<span>{project.name}</span>{(taskCounts[project.id] ?? 0) > 0 && <small>{taskCounts[project.id]}</small>}</button>
+    {selected && <div className="sidebar-project-modules" style={{ marginLeft: `${19 + depth * 13}px` }}>{projectSections.map(({ area: section, label, icon: Icon }) => <button key={section} className={area === section ? "active" : ""} onClick={() => onArea(section)}><Icon size={14} /><span>{label}</span>{section === "threads" && (taskCounts[project.id] ?? 0) > 0 && <small>{taskCounts[project.id]}</small>}</button>)}</div>}
+    {children.map((child) => <SidebarProject key={child.id} project={child} allProjects={allProjects} selectedId={selectedId} area={area} taskCounts={taskCounts} onSelect={onSelect} onArea={onArea} depth={depth + 1} />)}
   </div>;
+}
+
+export function WorkspaceContextBar({ workspace, organization, project, area, onInbox, onOrganization, onProjects, onProject, onArea }: { workspace: Workspace; organization: Organization | null; project: Project | null; area: WorkbenchArea; onInbox: () => void; onOrganization: () => void; onProjects: () => void; onProject: (project: Project) => void; onArea: (area: WorkbenchArea) => void }) {
+  const projectChain: Project[] = [];
+  let cursor = project;
+  while (cursor) {
+    projectChain.unshift(cursor);
+    const parentId = cursor.parentId;
+    cursor = parentId ? workspace.projects.find((item) => item.id === parentId) ?? null : null;
+  }
+  const inbox = !project && area === "threads";
+  const parentProject = project?.parentId ? workspace.projects.find((item) => item.id === project.parentId) ?? null : null;
+  const back = inbox ? null : project
+    ? area === "project-overview" ? parentProject ? () => onProject(parentProject) : onProjects : () => onArea("project-overview")
+    : organization && area !== "organization-overview" ? onOrganization : organization ? onInbox : null;
+  const backLabel = project ? area === "project-overview" ? parentProject ? `Back to ${parentProject.name}` : "Back to projects" : `Back to ${project.name}` : organization && area !== "organization-overview" ? `Back to ${organization.name}` : "Back to inbox";
+  return <header className="workspace-context-bar">
+    {back && <button className="context-back" onClick={back} aria-label={backLabel} title={backLabel}><ArrowLeft size={15} /><span>{backLabel}</span></button>}
+    <nav className="breadcrumbs" aria-label="Breadcrumb">
+      {inbox && <span aria-current="page">Inbox</span>}
+      {!inbox && !organization && <span aria-current="page">Workspace</span>}
+      {!inbox && organization && <><button onClick={onOrganization}>{organization.name}</button>{project && <><ChevronRight size={12} /><button onClick={onProjects}>Projects</button>{projectChain.map((item) => <span className="breadcrumb-part" key={item.id}><ChevronRight size={12} /><button onClick={() => onProject(item)}>{item.name}</button></span>)}</>}<ChevronRight size={12} /><span aria-current="page">{areaLabels[area]}</span></>}
+    </nav>
+  </header>;
 }
 
 export function OrganizationOverview({ organization, workspace, tasks, onProject, onPeople }: { organization: Organization; workspace: Workspace; tasks: Task[]; onProject: (project: Project) => void; onPeople: () => void }) {
@@ -70,12 +102,41 @@ export function OrganizationOverview({ organization, workspace, tasks, onProject
   </WorkspacePage>;
 }
 
-export function ProjectOverview({ project, workspace, tasks, onArea }: { project: Project; workspace: Workspace; tasks: Task[]; onArea: (area: WorkbenchArea) => void }) {
+export function ProjectOverview({ project, workspace, tasks, onArea, onCapture }: { project: Project; workspace: Workspace; tasks: Task[]; onArea: (area: WorkbenchArea) => void; onCapture: () => void }) {
   const projectTasks = tasks.filter((task) => task.projectId === project.id && !task.deletedAt);
   const open = projectTasks.filter((task) => task.status !== "done");
   return <WorkspacePage eyebrow={projectPath(project, workspace)} title={project.name} description={project.description || "Add a short project description so people and the meeting assistant understand what belongs here."}>
-    <div className="overview-metrics project-metrics"><Metric icon={ListTodo} label="Open threads" value={open.length} onClick={() => onArea("threads")} /><Metric icon={CheckCircle2} label="Completed" value={projectTasks.filter((task) => task.status === "done").length} /><Metric icon={CalendarDays} label="Meetings" value="Next" onClick={() => onArea("meetings")} /><Metric icon={FileText} label="Documents" value="Open" onClick={() => onArea("documents")} /></div>
-    <div className="overview-grid"><section className="surface-card"><div className="surface-card-heading"><div><p className="eyebrow">Threads</p><h2>Current work</h2></div><button className="text-link" onClick={() => onArea("threads")}>View all <ArrowRight size={14} /></button></div>{open.slice(0, 6).map((task) => <div key={task.id} className="work-preview-row"><span className={`priority-dot ${task.priority}`} /><span><strong>{task.title}</strong><small>{task.notes || "No additional context"}</small></span></div>)}{open.length === 0 && <EmptyPanel title="No open threads" text="Capture work here or move an inbox item into this project." />}</section><section className="surface-card next-module-card"><div className="module-icon"><CalendarDays size={22} /></div><p className="eyebrow">Coming next</p><h2>Meetings become work</h2><p>Google Calendar events, recordings, transcripts, decisions and action items will live in this project instead of in a separate tool.</p><button className="secondary-button" onClick={() => onArea("meetings")}>Open meetings</button></section></div>
+    <div className="overview-metrics project-metrics"><Metric icon={ListTodo} label="Open threads" value={open.length} onClick={() => onArea("threads")} /><Metric icon={CheckCircle2} label="Completed" value={projectTasks.filter((task) => task.status === "done").length} /><Metric icon={CalendarDays} label="Meetings" value="Open" onClick={() => onArea("meetings")} /><Metric icon={FileText} label="Documents" value="Open" onClick={() => onArea("documents")} /></div>
+    <section className="project-actions-section"><div className="surface-card-heading"><div><p className="eyebrow">Start from the outcome</p><h2>What needs to happen?</h2></div><small>Every action stays in this project's context.</small></div><div className="project-action-grid">
+      <ProjectAction icon={StickyNote} title="Capture an agreement" text="Save a loose note, decision or piece of context before it disappears." status="Ready" onClick={onCapture} />
+      <ProjectAction icon={ListTodo} title="Create project work" text="Turn an outcome into a thread with context, priority and a reminder." status="Ready" onClick={onCapture} />
+      <ProjectAction icon={UserRoundCheck} title="Delegate work" text="Choose a responsible person, give clear instructions and track acknowledgement." status="Preview" onClick={() => onArea("communication")} />
+      <ProjectAction icon={CalendarDays} title="Plan or record a meeting" text="Keep the recording, transcript, decisions and follow-up work together." status="Ready" onClick={() => onArea("meetings")} />
+      <ProjectAction icon={Paperclip} title="Add source material" text="Attach a note, link or file that explains the work and its constraints." status="Ready" onClick={() => onArea("documents")} />
+      <ProjectAction icon={Send} title="Send an update or question" text="Prepare instructions, information, questions or clarification for a chosen channel." status="Preview" onClick={() => onArea("communication")} />
+      <ProjectAction icon={Phone} title="Make a call" text="Prepare and later place a phone, WhatsApp or workspace call with a clear purpose." status="Preview" onClick={() => onArea("communication")} />
+    </div></section>
+    <div className="overview-grid"><section className="surface-card"><div className="surface-card-heading"><div><p className="eyebrow">Threads</p><h2>Current work</h2></div><button className="text-link" onClick={() => onArea("threads")}>View all <ArrowRight size={14} /></button></div>{open.slice(0, 6).map((task) => <div key={task.id} className="work-preview-row"><span className={`priority-dot ${task.priority}`} /><span><strong>{task.title}</strong><small>{task.notes || "No additional context"}</small></span></div>)}{open.length === 0 && <EmptyPanel title="No open threads" text="Capture work here or move an inbox item into this project." />}</section><section className="surface-card project-memory-card"><p className="eyebrow">One project memory</p><h2>Context follows the action</h2><p>A meeting, message, call or delegated task can use the same people, documents, vocabulary and earlier decisions. The channel changes, but the project context does not.</p><div className="context-flow"><span>Intent</span><ChevronRight size={13} /><span>Context</span><ChevronRight size={13} /><span>Action</span><ChevronRight size={13} /><span>Outcome</span></div></section></div>
+  </WorkspacePage>;
+}
+
+function ProjectAction({ icon: Icon, title, text, status, onClick }: { icon: typeof LayoutDashboard; title: string; text: string; status: "Ready" | "Preview"; onClick: () => void }) {
+  return <button className="project-action" onClick={onClick}><span className="project-action-icon"><Icon size={18} /></span><span><strong>{title}</strong><small>{text}</small></span><span className={`status-pill ${status === "Ready" ? "ready" : "planned"}`}>{status}</span><ArrowRight size={15} /></button>;
+}
+
+export function CommunicationWorkspace({ project, workspace, onIntegrations }: { project: Project; workspace: Workspace; onIntegrations: () => void }) {
+  const [channel, setChannel] = useState("Email");
+  const [intent, setIntent] = useState("Project update");
+  const [draft, setDraft] = useState("");
+  const channels = [{ name: "Email", icon: Mail }, { name: "WhatsApp", icon: MessageSquareText }, { name: "Slack", icon: MessageSquareText }, { name: "Phone call", icon: Phone }, { name: "Facebook", icon: Send }];
+  return <WorkspacePage eyebrow={projectPath(project, workspace)} title="Communication" description="Prepare project communication by intent and recipient. Sending and calling remain disabled until the matching organisation integration is connected.">
+    <div className="communication-layout"><section className="surface-card communication-composer"><div className="surface-card-heading"><div><p className="eyebrow">Action preview</p><h2>Prepare communication</h2></div><span className="status-pill planned">Not connected</span></div>
+      <label><span>Purpose</span><select value={intent} onChange={(event) => setIntent(event.target.value)}><option>Project update</option><option>Instruction</option><option>Request</option><option>Question</option><option>Clarification</option><option>Decision confirmation</option></select></label>
+      <div className="communication-field"><span className="field-label">Channel</span><div className="channel-picker">{channels.map(({ name, icon: Icon }) => <button key={name} className={channel === name ? "active" : ""} onClick={() => setChannel(name)}><Icon size={15} />{name}</button>)}</div></div>
+      <label><span>Recipient</span><input placeholder="Choose a person or enter an address after the integration is connected" disabled /></label>
+      <label><span>Message or call brief</span><textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={`What should this ${intent.toLowerCase()} communicate?`} /></label>
+      <div className="communication-actions"><button className="secondary-button" onClick={onIntegrations}><Plug size={14} />Manage integrations</button><button className="primary-button" disabled><Send size={14} />Connect {channel} to continue</button></div>
+    </section><aside className="surface-card delivery-preview"><p className="eyebrow">Designed workflow</p><h2>Controlled, not automatic by surprise</h2><ol><li><strong>Describe the intent</strong><span>Update, instruction, question, request or clarification.</span></li><li><strong>Select people and context</strong><span>Threadbox proposes relevant project facts and attachments.</span></li><li><strong>Review the exact action</strong><span>You see the recipient, channel and final message or call brief.</span></li><li><strong>Send and retain the outcome</strong><span>The delivery result and any reply return to the project activity.</span></li></ol></aside></div>
   </WorkspacePage>;
 }
 
@@ -380,7 +441,15 @@ function formatMeetingDate(value: string): string {
 }
 
 export function IntegrationsWorkspace({ organization }: { organization: Organization }) {
-  return <WorkspacePage eyebrow="Organisation" title="Integrations" description={`Connections available to ${organization.name}. Each integration must clearly state what it reads and changes.`}><section className="integration-card"><div className="integration-logo"><CalendarDays size={23} /></div><div><p className="eyebrow">Calendar</p><h2>Google Calendar</h2><p>Use existing events as the meeting schedule. Threadbox will not create a second calendar.</p></div><span className="status-pill planned">Planned next</span></section><section className="integration-card muted"><div className="integration-logo"><Link2 size={23} /></div><div><p className="eyebrow">Extensible workspace</p><h2>More connections can follow</h2><p>Calls, work distribution and future services will use the same clear integration surface.</p></div><span className="status-pill">Later</span></section></WorkspacePage>;
+  const integrations = [
+    { name: "Google Calendar", kind: "Calendar", text: "Use existing events as the meeting schedule instead of creating a second calendar.", icon: CalendarDays, status: "Next" },
+    { name: "Email", kind: "Messages", text: "Send reviewed updates, requests and instructions, then retain delivery and replies.", icon: Mail, status: "Preview" },
+    { name: "WhatsApp", kind: "Messages and calls", text: "Message or call project contacts from the same communication workflow.", icon: MessageSquareText, status: "Preview" },
+    { name: "Slack", kind: "Workspace", text: "Send messages, ask questions and bring replies back into the project context.", icon: MessageSquareText, status: "Preview" },
+    { name: "Phone", kind: "Calls", text: "Place a reviewed call from a prepared brief and retain its result or recording.", icon: Phone, status: "Research" },
+    { name: "Facebook", kind: "Messages", text: "Support approved outbound messages without mixing social identities into project data.", icon: Send, status: "Research" },
+  ];
+  return <WorkspacePage eyebrow="Organisation" title="Integrations" description={`Connections available to ${organization.name}. Each integration must clearly state what it reads, sends and retains.`}><div className="integration-grid">{integrations.map(({ name, kind, text, icon: Icon, status }) => <section className="integration-card" key={name}><div className="integration-logo"><Icon size={21} /></div><div><p className="eyebrow">{kind}</p><h2>{name}</h2><p>{text}</p></div><span className={`status-pill ${status === "Next" ? "planned" : ""}`}>{status}</span></section>)}</div></WorkspacePage>;
 }
 
 export function DocumentsWorkspace({ project, workspace, onReload, onError }: { project: Project; workspace: Workspace; onReload: () => Promise<void>; onError: (message: string) => void }) {
