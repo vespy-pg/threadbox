@@ -61,7 +61,10 @@ A person is a top-level record, not content inside a project. Three reasons, and
 3. Name variants feed the vocabulary described in `vocabulary-domain.md`, which is also global.
 
 A person therefore carries a display name, spoken and written variants of it, and a flag marking the
-one record that is the user. Membership of a project is a separate association with an optional role.
+one record that is the user. Membership of an organisation and membership of a project are separate
+associations with optional roles. Organisation membership is the home for employees and collaborators
+who have not yet been assigned to a project. The interface manages people inside the current
+organisation even though the canonical person record stays global.
 
 ## Documents and free-form project information
 

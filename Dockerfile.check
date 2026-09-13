@@ -1,8 +1,5 @@
 FROM rust:1.98-bookworm
 
-ARG CARGO_BUILD_JOBS=3
-ENV CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS}
-
 RUN apt-get update && apt-get install -y --no-install-recommends \
     clang \
     cmake \
@@ -15,6 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libwebkit2gtk-4.1-dev \
     patchelf \
     && rm -rf /var/lib/apt/lists/*
+
+ARG CARGO_BUILD_JOBS=1
+ENV CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS}
 
 WORKDIR /app
 RUN rustup component add rustfmt clippy

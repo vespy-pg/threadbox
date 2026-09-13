@@ -178,6 +178,33 @@ fn delete_person(database: tauri::State<'_, Database>, id: String) -> AppResult<
 }
 
 #[tauri::command]
+fn list_organization_people(
+    database: tauri::State<'_, Database>,
+    organization_id: String,
+) -> AppResult<Vec<workspace::OrganizationMember>> {
+    database.list_organization_people(&organization_id)
+}
+
+#[tauri::command]
+fn add_organization_person(
+    database: tauri::State<'_, Database>,
+    organization_id: String,
+    person_id: String,
+    role: Option<String>,
+) -> AppResult<()> {
+    database.add_organization_person(&organization_id, &person_id, role)
+}
+
+#[tauri::command]
+fn remove_organization_person(
+    database: tauri::State<'_, Database>,
+    organization_id: String,
+    person_id: String,
+) -> AppResult<()> {
+    database.remove_organization_person(&organization_id, &person_id)
+}
+
+#[tauri::command]
 fn list_project_people(
     database: tauri::State<'_, Database>,
     project_id: String,
@@ -495,6 +522,9 @@ pub fn run() {
             self_person,
             update_person,
             delete_person,
+            list_organization_people,
+            add_organization_person,
+            remove_organization_person,
             list_project_people,
             add_project_person,
             remove_project_person,

@@ -45,13 +45,16 @@ transcripts, and learning from the user's corrections.
 ## Status
 
 **Steps 1 to 3 are implemented**, on branch `feature/meeting-agent-domain-foundation`, not merged.
+The application shell has subsequently been reorganised around organisations and projects before
+starting step 4. `information-architecture.md` records the product structure this establishes.
 
 ### Step 1, domain foundation
 
 - Migrations are versioned through `user_version`. Version 1 is the schema as it shipped, applied
   idempotently so existing installations reporting version zero are not disturbed. Version 2 adds the
   tables below and the project reference on tasks.
-- New tables: `organizations`, `projects`, `project_context_links`, `people`, `project_people`.
+- New tables: `organizations`, `projects`, `project_context_links`, `people`, `organization_people`,
+  `project_people`.
 - `tasks` gains a nullable `project_id`, validated against a live project on create and update. A task
   without one is in the inbox, which is the existing behaviour.
 - Context scope resolution is implemented as `project_context_scope`: the project itself, its ancestors
@@ -92,10 +95,10 @@ project builds in Docker.
   validated, and a file is stored in the blob store with its size recorded. Documents move between
   projects; the kind and a file's bytes do not change, so replacing a file means adding another
   document and the earlier one stays citable.
-- The interface has caught up with step 1 as well. A Projects dialog manages organisations, the project
-  tree, context sharing and documents; the task detail and the capture form carry a project picker; a
-  task row shows the project it is filed under. The media root is fetched once at startup, since stored
-  references are relative and the interface needs the absolute path to display a file.
+- The interface is organised around the selected organisation and project. Organisation Overview,
+  People, Projects and Integrations are stable top-level surfaces; each project has Overview, Threads,
+  Meetings and Documents. The old task list is the project's Threads surface, while the global inbox
+  remains the home for unassigned work. The task detail and capture form carry a project picker.
 
 Verified with `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test`, now 33
 tests with 14 new for this step, plus `tsc --noEmit` and `vitest`, 28 tests with 4 new. The graphical
@@ -124,5 +127,20 @@ plainly in `model-providers.md` rather than implied to work.
 
 Verified with the same commands as step 2: 47 Rust tests, 31 interface tests, `tsc --noEmit`, clippy
 with `-D warnings`. The graphical application has not been launched, for the same reason as before.
+
+### Organisation-first application shell
+
+- The selected organisation is always visible and controls the Overview, People, Projects and
+  Integrations surfaces. Projects are visible in the same navigation rather than hidden in a dialog.
+- Selecting a project reveals its Overview, Threads, Meetings and Documents surfaces. Quick capture
+  inherits the current project, while the global inbox remains available for unassigned work.
+- Organisation Overview aggregates open, overdue and high-priority work from its projects. Meeting
+  and Google Calendar surfaces state their next-step status without pretending to be functional.
+- People remain canonical global records and gain organisation membership with an optional role in
+  schema version 5. The People surface creates and associates people without requiring a project.
+- The full project check defaults to one CPU, 2 GB RAM and one Cargo job through `scripts/check.sh`.
+
+Verified with 48 Rust tests, clippy with `-D warnings`, 31 interface tests, `tsc --noEmit` and the
+production interface build. The graphical application has not been launched.
 
 - Steps 4 to 7: not started.

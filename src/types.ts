@@ -229,3 +229,8 @@ export interface Person {
   updatedAt: string;
   deletedAt: string | null;
 }
+
+export interface OrganizationMember {
+  role: string | null;
+  person: Person;
+}

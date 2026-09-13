@@ -129,6 +129,13 @@ pub struct ProjectMember {
     pub person: Person,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrganizationMember {
+    pub role: Option<String>,
+    pub person: Person,
+}
+
 fn default_organization_sharing() -> String {
     SHARING_ISOLATED.into()
 }
@@ -206,7 +213,29 @@ pub(crate) fn migrate_schema(connection: &Connection) -> AppResult<()> {
             role TEXT,
             created_at TEXT NOT NULL,
             PRIMARY KEY (project_id, person_id)
+        );
+        CREATE TABLE IF NOT EXISTS organization_people (
+            organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+            person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+            role TEXT,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (organization_id, person_id)
         );",
+    )?;
+    Ok(())
+}
+
+pub(crate) fn migrate_organization_people(connection: &Connection) -> AppResult<()> {
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS organization_people (
+            organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+            person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+            role TEXT,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (organization_id, person_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_organization_people_person
+            ON organization_people(person_id);",
     )?;
     Ok(())
 }
@@ -585,6 +614,59 @@ impl Database {
             params![id, now],
         )?;
         Ok(())
+    }
+
+    pub fn add_organization_person(
+        &self,
+        organization_id: &str,
+        person_id: &str,
+        role: Option<String>,
+    ) -> AppResult<()> {
+        self.get_organization(organization_id)?;
+        self.get_person(person_id)?;
+        self.connect()?.execute(
+            "INSERT INTO organization_people (organization_id, person_id, role, created_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(organization_id, person_id) DO UPDATE SET role = ?3",
+            params![organization_id, person_id, role, Utc::now().to_rfc3339()],
+        )?;
+        Ok(())
+    }
+
+    pub fn remove_organization_person(
+        &self,
+        organization_id: &str,
+        person_id: &str,
+    ) -> AppResult<()> {
+        self.connect()?.execute(
+            "DELETE FROM organization_people WHERE organization_id = ?1 AND person_id = ?2",
+            params![organization_id, person_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_organization_people(
+        &self,
+        organization_id: &str,
+    ) -> AppResult<Vec<OrganizationMember>> {
+        self.get_organization(organization_id)?;
+        let connection = self.connect()?;
+        let mut statement = connection.prepare(
+            "SELECT people.id, people.display_name, people.aliases_json, people.email,
+                    people.notes, people.is_self, people.created_at, people.updated_at,
+                    people.deleted_at, organization_people.role
+             FROM organization_people
+             JOIN people ON people.id = organization_people.person_id
+             WHERE organization_people.organization_id = ?1 AND people.deleted_at IS NULL
+             ORDER BY people.display_name COLLATE NOCASE, people.id",
+        )?;
+        let rows = statement.query_map([organization_id], |row| {
+            Ok(OrganizationMember {
+                person: person_from_row(row)?,
+                role: row.get(9)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
     pub fn add_project_person(
@@ -1300,6 +1382,46 @@ mod tests {
             .list_project_people(&engage_hub.id)
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn organization_membership_exists_without_a_project() {
+        let database = test_database();
+        let aptvision = organization(&database, "Aptvision", SHARING_ISOLATED);
+        let supplier = organization(&database, "Supplier", SHARING_ISOLATED);
+        let person = database
+            .create_person(PersonInput {
+                display_name: "Manju".into(),
+                aliases: Vec::new(),
+                email: Some("manju@example.com".into()),
+                notes: String::new(),
+                is_self: false,
+            })
+            .unwrap();
+
+        database
+            .add_organization_person(&aptvision.id, &person.id, Some("Quality specialist".into()))
+            .unwrap();
+        let members = database.list_organization_people(&aptvision.id).unwrap();
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].person.id, person.id);
+        assert_eq!(members[0].role.as_deref(), Some("Quality specialist"));
+        assert!(database
+            .list_organization_people(&supplier.id)
+            .unwrap()
+            .is_empty());
+
+        database
+            .remove_organization_person(&aptvision.id, &person.id)
+            .unwrap();
+        assert!(database
+            .list_organization_people(&aptvision.id)
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            database.get_person(&person.id).unwrap().display_name,
+            "Manju"
+        );
     }
 
     #[test]

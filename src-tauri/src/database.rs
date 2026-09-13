@@ -157,6 +157,10 @@ impl Database {
             crate::workspace::migrate_language_columns(&connection)?;
             connection.pragma_update(None, "user_version", 4)?;
         }
+        if version < 5 {
+            crate::workspace::migrate_organization_people(&connection)?;
+            connection.pragma_update(None, "user_version", 5)?;
+        }
         Ok(())
     }
 

@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { readImage } from "@tauri-apps/plugin-clipboard-manager";
 import { setMediaRoot } from "./media";
-import type { AppSettings, ApiProvider, LanguageModelStatus, ModelStatus, Organization, Person, Project, ProjectDocument, ProjectDocumentInput, ProjectLanguage, ProviderProbe, SpeechModelId, Task, TaskInput, TaskPatch } from "./types";
+import type { AppSettings, ApiProvider, LanguageModelStatus, ModelStatus, Organization, OrganizationMember, Person, Project, ProjectDocument, ProjectDocumentInput, ProjectLanguage, ProviderProbe, SpeechModelId, Task, TaskInput, TaskPatch } from "./types";
 
 const inTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 
@@ -186,6 +186,30 @@ export const api = {
 
   async listPeople(): Promise<Person[]> {
     return inTauri() ? invoke<Person[]>("list_people") : [];
+  },
+
+  async createPerson(input: { displayName: string; aliases?: string[]; email?: string | null; notes?: string; isSelf?: boolean }): Promise<Person> {
+    return invoke<Person>("create_person", { input: { aliases: [], email: null, notes: "", isSelf: false, ...input } });
+  },
+
+  async updatePerson(patch: { id: string } & Partial<Person>): Promise<Person> {
+    return invoke<Person>("update_person", { patch });
+  },
+
+  async deletePerson(id: string): Promise<void> {
+    await invoke<void>("delete_person", { id });
+  },
+
+  async listOrganizationPeople(organizationId: string): Promise<OrganizationMember[]> {
+    return inTauri() ? invoke<OrganizationMember[]>("list_organization_people", { organizationId }) : [];
+  },
+
+  async addOrganizationPerson(organizationId: string, personId: string, role?: string | null): Promise<void> {
+    await invoke<void>("add_organization_person", { organizationId, personId, role: role ?? null });
+  },
+
+  async removeOrganizationPerson(organizationId: string, personId: string): Promise<void> {
+    await invoke<void>("remove_organization_person", { organizationId, personId });
   },
 
   async listProjectDocuments(projectId: string): Promise<ProjectDocument[]> {

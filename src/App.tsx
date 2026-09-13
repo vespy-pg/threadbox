@@ -18,7 +18,6 @@ import {
   MicOff,
   Minus,
   MoreHorizontal,
-  FolderTree,
   Paperclip,
   Play,
   Plus,
@@ -43,13 +42,14 @@ import { api } from "./api";
 import { DateTimePicker } from "./DateTimePicker";
 import { formatDueDate, taskMatchesView, toDateTimeLocal } from "./date";
 import { mediaSource } from "./media";
-import { ProjectSelect, ProjectsDialog, projectPath, useWorkspace, type Workspace } from "./projects";
+import { ProjectSelect, projectPath, useWorkspace, type Workspace } from "./projects";
 import { LanguageModelProviderSettings, ProviderSetup, SpeechProviderSettings } from "./providers";
+import { DocumentsWorkspace, IntegrationsWorkspace, MeetingsWorkspace, OrganizationOverview, PeopleWorkspace, ProjectOverview, ProjectsWorkspace, WorkspaceNavigation, type WorkbenchArea } from "./workbench";
 import type { AppSettings, AudioAttachment, AudioInputMode, FileAttachment, SourceType, Task, TaskInput, TaskPriority, TaskView } from "./types";
 import packageJson from "../package.json";
 
 const viewItems: Array<{ id: TaskView; label: string; icon: typeof Inbox }> = [
-  { id: "inbox", label: "Inbox", icon: Inbox },
+  { id: "inbox", label: "Open", icon: Inbox },
   { id: "high", label: "High", icon: AlertTriangle },
   { id: "mid", label: "Mid", icon: Minus },
   { id: "low", label: "Low", icon: ArrowDown },
@@ -58,7 +58,7 @@ const viewItems: Array<{ id: TaskView; label: string; icon: typeof Inbox }> = [
 ];
 
 const viewTitles: Record<TaskView, string> = {
-  inbox: "Inbox",
+  inbox: "Open threads",
   high: "High priority",
   mid: "Mid priority",
   low: "Low priority",
@@ -95,7 +95,9 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [composerOpen, setComposerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [projectsOpen, setProjectsOpen] = useState(false);
+  const [area, setArea] = useState<WorkbenchArea>("organization-overview");
+  const [activeOrganizationId, setActiveOrganizationId] = useState<string | null>(null);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [remindersOpen, setRemindersOpen] = useState(false);
   const [stickyReminderOpen, setStickyReminderOpen] = useState(false);
@@ -112,11 +114,25 @@ export default function App() {
   const [undoDeletion, setUndoDeletion] = useState<{ id: string; title: string } | null>(null);
   const checkedInitialReminders = useRef(false);
   const checkedInitialWelcome = useRef(false);
+  const initializedWorkspaceContext = useRef(false);
   const listMenuRef = useRef<HTMLDivElement>(null);
   const undoTimerRef = useRef<number | null>(null);
   const undoDeletionTimerRef = useRef<number | null>(null);
 
   const { workspace, reload: reloadWorkspace } = useWorkspace(setError);
+  const activeOrganization = workspace.organizations.find((organization) => organization.id === activeOrganizationId) ?? null;
+  const activeProject = workspace.projects.find((project) => project.id === activeProjectId) ?? null;
+
+  useEffect(() => {
+    if (initializedWorkspaceContext.current || workspace.organizations.length === 0) return;
+    initializedWorkspaceContext.current = true;
+    setActiveOrganizationId(workspace.organizations[0].id);
+    setArea("organization-overview");
+  }, [workspace.organizations]);
+
+  useEffect(() => {
+    if (activeProject && activeProject.organizationId !== activeOrganizationId) setActiveProjectId(null);
+  }, [activeOrganizationId, activeProject]);
 
   const setAudioTranscribing = useCallback((id: string, active: boolean) => {
     setTranscribingAudioIds((current) => active
@@ -237,7 +253,9 @@ export default function App() {
 
   const selected = tasks.find((task) => task.id === selectedId) ?? null;
   const dueReminders = useMemo(() => dueReminderTasks(tasks), [tasks]);
-  const viewTasks = useMemo(() => sortTasksForView(tasks.filter((task) => taskMatchesView(task, view))), [tasks, view]);
+  const contextTasks = useMemo(() => tasks.filter((task) => activeProject ? task.projectId === activeProject.id : task.projectId === null), [activeProject, tasks]);
+  const viewTasks = useMemo(() => sortTasksForView(contextTasks.filter((task) => taskMatchesView(task, view))), [contextTasks, view]);
+  const projectTaskCounts = useMemo(() => tasks.reduce<Record<string, number>>((counts, task) => { if (task.projectId && !task.deletedAt && task.status !== "done") counts[task.projectId] = (counts[task.projectId] ?? 0) + 1; return counts; }, {}), [tasks]);
   const filtered = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
     return viewTasks
@@ -246,7 +264,7 @@ export default function App() {
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const visibleTasks = filtered.slice((page - 1) * pageSize, page * pageSize);
 
-  useEffect(() => setPage(1), [search, view]);
+  useEffect(() => setPage(1), [activeProjectId, search, view]);
   useEffect(() => setPage((current) => Math.min(current, pageCount)), [pageCount]);
 
   useEffect(() => {
@@ -269,6 +287,29 @@ export default function App() {
     setSelectedId(task.id);
     setComposerOpen(false);
     return task;
+  }
+
+  async function createOrganization() {
+    const name = window.prompt("Organisation name");
+    if (!name?.trim()) return;
+    try {
+      const organization = await api.createOrganization({ name: name.trim() });
+      await reloadWorkspace();
+      setActiveOrganizationId(organization.id);
+      setActiveProjectId(null);
+      setArea("projects");
+    } catch (reason) {
+      setError(String(reason));
+    }
+  }
+
+  function openTask(task: Task) {
+    const project = task.projectId ? workspace.projects.find((item) => item.id === task.projectId) : null;
+    setActiveProjectId(project?.id ?? null);
+    setActiveOrganizationId(project?.organizationId ?? activeOrganizationId);
+    setArea("threads");
+    setView(task.deletedAt ? "deleted" : task.status === "done" ? "done" : "inbox");
+    setSelectedId(task.id);
   }
 
   async function updateTask(id: string, patch: Partial<TaskInput>) {
@@ -331,7 +372,7 @@ export default function App() {
   }
 
   async function removeAllInView(targetView: TaskView) {
-    const targetTasks = sortTasksForView(tasks.filter((task) => taskMatchesView(task, targetView)));
+    const targetTasks = sortTasksForView(contextTasks.filter((task) => taskMatchesView(task, targetView)));
     if (targetTasks.length === 0) return;
     const permanently = targetView === "deleted";
     const action = permanently ? "permanently delete" : "remove";
@@ -364,42 +405,29 @@ export default function App() {
       <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
         <div className="brand"><span className="brand-mark">T</span><span>Threadbox</span></div>
         <button className="primary-button capture-button" onClick={() => setComposerOpen(true)}><Plus size={18} />Quick capture <kbd>{shortcutLabel(settings.quickCaptureShortcut)}</kbd></button>
-        <nav>
-          {viewItems.map(({ id, label, icon: Icon }) => {
-            const count = tasks.filter((task) => taskMatchesView(task, id)).length;
-            return <div key={id} className="nav-item-menu" ref={listMenuView === id ? listMenuRef : undefined} onContextMenu={(event) => { event.preventDefault(); setListMenuView(id); }}><button className={view === id ? "nav-item active" : "nav-item"} onClick={() => { setListMenuView(null); setView(id); setSidebarOpen(false); }}><Icon size={17} /><span>{label}</span>{count > 0 && <span className="count">{count}</span>}</button>{listMenuView === id && <div className="list-context-menu sidebar-list-menu"><button disabled={count === 0} onClick={() => void removeAllInView(id)}><Trash2 size={14} />{id === "deleted" ? "Delete all permanently" : "Clear this list"}</button></div>}</div>;
-          })}
-        </nav>
-        <button className="nav-item projects-link" onClick={() => setProjectsOpen(true)}><FolderTree size={17} /><span>Projects</span>{workspace.projects.length > 0 && <span className="count">{workspace.projects.length}</span>}</button>
+        <WorkspaceNavigation workspace={workspace} organization={activeOrganization} project={activeProject} area={area} inboxCount={tasks.filter((task) => task.projectId === null && !task.deletedAt && task.status !== "done").length} projectTaskCounts={projectTaskCounts} onOrganization={(id) => { setActiveOrganizationId(id); setActiveProjectId(null); setArea(id ? "organization-overview" : "threads"); setSidebarOpen(false); }} onCreateOrganization={() => void createOrganization()} onProject={(id) => { setActiveProjectId(id); const project = workspace.projects.find((item) => item.id === id); if (project) setActiveOrganizationId(project.organizationId); setSidebarOpen(false); }} onArea={(next) => { setArea(next); setSelectedId(null); setSidebarOpen(false); }} />
         <button className="nav-item reminder-link" onClick={() => setRemindersOpen(true)}><Bell size={17} /><span>Reminders</span>{reminderTasks(tasks).length > 0 && <span className="count">{reminderTasks(tasks).length}</span>}</button>
         <button className="nav-item settings-link" onClick={() => setSettingsOpen(true)}><Settings size={17} /><span>Settings</span></button>
         <span className="app-version">Threadbox {packageJson.version}</span>
       </aside>
-
-      <section className="task-column">
-        <header className="column-header">
-          <button className="icon-button mobile-menu" aria-label="Open navigation" onClick={() => setSidebarOpen((value) => !value)}><Menu size={20} /></button>
-          <div className="list-title-menu"><p className="eyebrow">Workspace</p><h1>{viewTitles[view]}</h1></div>
-          <button className="icon-button" aria-label="Create task" onClick={() => setComposerOpen(true)}><Plus /></button>
-        </header>
-        <label className="search-box"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search tasks and messages" /></label>
-        <div className="task-list">
-          {visibleTasks.map((task) => <TaskRow key={task.id} task={task} projectLabel={taskProjectLabel(task, workspace)} selected={task.id === selectedId} processing={Boolean(processingTaskCounts[task.id])} onSelect={() => setSelectedId(task.id)} onToggle={() => toggleTaskCompletion(task)} onRestore={() => restoreTask(task.id)} />)}
-          {filtered.length === 0 && <EmptyState view={view} retentionDays={settings.taskRetentionDays} onCreate={() => setComposerOpen(true)} />}
-        </div>
-        {filtered.length > pageSize && <Pagination page={page} pageCount={pageCount} itemCount={filtered.length} onPage={setPage} />}
+      <section className="workspace-main">
+        <button className="icon-button mobile-menu workspace-mobile-menu" aria-label="Open navigation" onClick={() => setSidebarOpen((value) => !value)}><Menu size={20} /></button>
+        {area === "threads" && <div className="thread-workspace"><section className="task-column"><header className="column-header"><button className="icon-button mobile-menu" aria-label="Open navigation" onClick={() => setSidebarOpen((value) => !value)}><Menu size={20} /></button><div className="list-title-menu"><p className="eyebrow">{activeProject ? projectPath(activeProject, workspace) : "Unassigned work"}</p><h1>{activeProject ? "Threads" : "Inbox"}</h1></div><button className="icon-button" aria-label="Create thread" onClick={() => setComposerOpen(true)}><Plus /></button></header><div className="thread-filters">{viewItems.map(({ id, label, icon: Icon }) => { const count = contextTasks.filter((task) => taskMatchesView(task, id)).length; return <div key={id} className="thread-filter-menu" ref={listMenuView === id ? listMenuRef : undefined}><button className={view === id ? "thread-filter active" : "thread-filter"} onClick={() => { setView(id); setListMenuView(null); }} onContextMenu={(event) => { event.preventDefault(); setListMenuView(id); }}><Icon size={14} />{label}{count > 0 && <span>{count}</span>}</button>{listMenuView === id && <div className="list-context-menu"><button disabled={count === 0} onClick={() => void removeAllInView(id)}><Trash2 size={14} />{id === "deleted" ? "Delete all permanently" : "Clear this list"}</button></div>}</div>; })}</div><label className="search-box"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search threads" /></label><div className="task-list">{visibleTasks.map((task) => <TaskRow key={task.id} task={task} projectLabel={taskProjectLabel(task, workspace)} selected={task.id === selectedId} processing={Boolean(processingTaskCounts[task.id])} onSelect={() => setSelectedId(task.id)} onToggle={() => toggleTaskCompletion(task)} onRestore={() => restoreTask(task.id)} />)}{filtered.length === 0 && <EmptyState view={view} retentionDays={settings.taskRetentionDays} onCreate={() => setComposerOpen(true)} />}</div>{filtered.length > pageSize && <Pagination page={page} pageCount={pageCount} itemCount={filtered.length} onPage={setPage} />}</section><section className={`details-column ${selected ? "details-visible" : ""}`}>{selected ? <TaskDetails key={selected.id} task={selected} workspace={workspace} clockFormat={settings.clockFormat} audioInputMode={settings.audioInputMode} tomorrowReminderTime={settings.tomorrowReminderTime} transcribingAudioIds={transcribingAudioIds} onAudioTranscribing={setAudioTranscribing} onTaskProcessing={setTaskProcessing} onClose={() => setSelectedId(null)} onUpdate={(patch) => updateTask(selected.id, patch)} onRestore={() => restoreTask(selected.id)} onDelete={() => removeTask(selected.id, Boolean(selected.deletedAt))} onError={setError} /> : <div className="details-placeholder"><div className="placeholder-icon"><Check size={24} /></div><h2>Pick a thread</h2><p>Its task, context, reminders and attachments will appear here.</p></div>}</section></div>}
+        {area === "organization-overview" && activeOrganization && <OrganizationOverview organization={activeOrganization} workspace={workspace} tasks={tasks} onProject={(project) => { setActiveProjectId(project.id); setArea("project-overview"); }} onPeople={() => setArea("people")} />}
+        {area === "project-overview" && activeProject && <ProjectOverview project={activeProject} workspace={workspace} tasks={tasks} onArea={setArea} />}
+        {area === "people" && activeOrganization && <PeopleWorkspace organization={activeOrganization} onError={setError} />}
+        {area === "projects" && activeOrganization && <ProjectsWorkspace organization={activeOrganization} workspace={workspace} activeProject={activeProject} onReload={reloadWorkspace} onProject={(project) => setActiveProjectId(project.id)} onError={setError} />}
+        {area === "meetings" && activeProject && activeOrganization && <MeetingsWorkspace project={activeProject} organization={activeOrganization} onIntegrations={() => { setActiveProjectId(null); setArea("integrations"); }} />}
+        {area === "documents" && activeProject && <DocumentsWorkspace project={activeProject} workspace={workspace} onReload={reloadWorkspace} onError={setError} />}
+        {area === "integrations" && activeOrganization && <IntegrationsWorkspace organization={activeOrganization} />}
+        {area !== "threads" && !activeOrganization && <section className="workspace-page workspace-start"><div className="module-icon"><Plus size={24} /></div><p className="eyebrow">Start with context</p><h1>Create your first organisation</h1><p>An organisation keeps its projects, people, meetings and documents together without mixing client contexts.</p><button className="primary-button" onClick={() => void createOrganization()}>Create organisation</button></section>}
       </section>
 
-      <section className={`details-column ${selected ? "details-visible" : ""}`}>
-        {selected ? <TaskDetails key={selected.id} task={selected} workspace={workspace} clockFormat={settings.clockFormat} audioInputMode={settings.audioInputMode} tomorrowReminderTime={settings.tomorrowReminderTime} transcribingAudioIds={transcribingAudioIds} onAudioTranscribing={setAudioTranscribing} onTaskProcessing={setTaskProcessing} onClose={() => setSelectedId(null)} onUpdate={(patch) => updateTask(selected.id, patch)} onRestore={() => restoreTask(selected.id)} onDelete={() => removeTask(selected.id, Boolean(selected.deletedAt))} onError={setError} /> : <div className="details-placeholder"><div className="placeholder-icon"><Check size={24} /></div><h2>Pick a task</h2><p>Its message, reminder, attachments and source link will appear here.</p></div>}
-      </section>
-
-      {composerOpen && <Composer workspace={workspace} clockFormat={settings.clockFormat} audioInputMode={settings.audioInputMode} tomorrowReminderTime={settings.tomorrowReminderTime} transcribingAudioIds={transcribingAudioIds} onAudioTranscribing={setAudioTranscribing} onTaskProcessing={setTaskProcessing} onClose={() => setComposerOpen(false)} onSubmit={createTask} onTaskUpdate={updateTask} onError={setError} />}
-      {projectsOpen && <ProjectsDialog workspace={workspace} onReload={reloadWorkspace} onClose={() => setProjectsOpen(false)} onError={setError} />}
+      {composerOpen && <Composer workspace={workspace} defaultProjectId={activeProject?.id ?? null} clockFormat={settings.clockFormat} audioInputMode={settings.audioInputMode} tomorrowReminderTime={settings.tomorrowReminderTime} transcribingAudioIds={transcribingAudioIds} onAudioTranscribing={setAudioTranscribing} onTaskProcessing={setTaskProcessing} onClose={() => setComposerOpen(false)} onSubmit={createTask} onTaskUpdate={updateTask} onError={setError} />}
       {settingsOpen && <SettingsDialog settings={settings} onSettings={setSettings} onClose={() => { setSettingsOpen(false); if (!settings.welcomeCompleted) setWelcomeOpen(true); }} onError={setError} />}
       {welcomeOpen && <WelcomeDialog shortcut={settings.quickCaptureShortcut} settings={settings} onSettings={setSettings} onError={setError} onComplete={() => { void api.updateSettings({ ...settings, welcomeCompleted: true }).then((updated) => { setSettings(updated); setWelcomeOpen(false); }).catch((reason) => setError(String(reason))); }} />}
-      {remindersOpen && <ReminderCenter tasks={reminderTasks(tasks)} tomorrowReminderTime={settings.tomorrowReminderTime} onClose={() => setRemindersOpen(false)} onOpen={(task) => { setSelectedId(task.id); setRemindersOpen(false); }} onDone={(task) => updateTask(task.id, { status: "done" })} onSnooze={(task, preset) => updateTask(task.id, { remindAt: reminderDate(preset, settings.tomorrowReminderTime).toISOString() })} onSnoozeAll={(items, preset) => Promise.all(items.map((task) => updateTask(task.id, { remindAt: reminderDate(preset, settings.tomorrowReminderTime).toISOString() }))).then(() => undefined)} />}
-      {stickyReminderOpen && dueReminders.length > 0 && <StickyReminder tasks={dueReminders} tomorrowReminderTime={settings.tomorrowReminderTime} onOpen={(task) => { setSelectedId(task.id); void releaseStickyReminder(); }} onDone={(task) => updateTask(task.id, { status: "done" })} onSnooze={(task, preset) => updateTask(task.id, { remindAt: reminderDate(preset, settings.tomorrowReminderTime).toISOString() })} onSnoozeAll={(items, preset) => Promise.all(items.map((task) => updateTask(task.id, { remindAt: reminderDate(preset, settings.tomorrowReminderTime).toISOString() }))).then(() => undefined)} />}
+      {remindersOpen && <ReminderCenter tasks={reminderTasks(tasks)} tomorrowReminderTime={settings.tomorrowReminderTime} onClose={() => setRemindersOpen(false)} onOpen={(task) => { openTask(task); setRemindersOpen(false); }} onDone={(task) => updateTask(task.id, { status: "done" })} onSnooze={(task, preset) => updateTask(task.id, { remindAt: reminderDate(preset, settings.tomorrowReminderTime).toISOString() })} onSnoozeAll={(items, preset) => Promise.all(items.map((task) => updateTask(task.id, { remindAt: reminderDate(preset, settings.tomorrowReminderTime).toISOString() }))).then(() => undefined)} />}
+      {stickyReminderOpen && dueReminders.length > 0 && <StickyReminder tasks={dueReminders} tomorrowReminderTime={settings.tomorrowReminderTime} onOpen={(task) => { openTask(task); void releaseStickyReminder(); }} onDone={(task) => updateTask(task.id, { status: "done" })} onSnooze={(task, preset) => updateTask(task.id, { remindAt: reminderDate(preset, settings.tomorrowReminderTime).toISOString() })} onSnoozeAll={(items, preset) => Promise.all(items.map((task) => updateTask(task.id, { remindAt: reminderDate(preset, settings.tomorrowReminderTime).toISOString() }))).then(() => undefined)} />}
       {error && <div className="toast error-toast"><span>{error}</span><button onClick={() => setError(null)}><X size={16} /></button></div>}
       {undoCompletion && <div className="toast undo-toast"><span>Task completed</span><button onClick={() => void undoCompletedTask()}>Undo</button></div>}
       {undoDeletion && <div className="toast undo-toast"><span>{undoDeletion.title} deleted</span><button onClick={() => void undoDeletedTask()}>Undo</button></div>}
@@ -447,9 +475,9 @@ function LinkEditor({ links, onAdd, onRemove, onError }: { links: string[]; onAd
   return <section className="link-editor"><label><span>Links</span><div className="link-entry"><div className="input-with-icon"><Link2 size={16} /><input type="url" value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addLink(); } }} placeholder="Paste a URL" /></div><button type="button" className="secondary-button" onClick={addLink} disabled={!input.trim()}><Plus size={15} />Add</button></div></label>{links.length > 0 && <div className="link-list">{links.map((link) => <div className="link-item" key={link}><a className="link-open" href={link} target="_blank" rel="noreferrer" onClick={(event) => openLink(event, link)} title={link}><ExternalLink size={14} /><span>{link}</span></a><button type="button" className="remove-attachment" title="Remove link" onClick={() => onRemove(link)}><X size={14} /></button></div>)}</div>}</section>;
 }
 
-function Composer({ workspace, clockFormat, audioInputMode, tomorrowReminderTime, transcribingAudioIds, onAudioTranscribing, onTaskProcessing, onClose, onSubmit, onTaskUpdate, onError }: { workspace: Workspace; clockFormat: AppSettings["clockFormat"]; audioInputMode: AudioInputMode; tomorrowReminderTime: string; transcribingAudioIds: string[]; onAudioTranscribing: (id: string, active: boolean) => void; onTaskProcessing: (id: string, active: boolean) => void; onClose: () => void; onSubmit: (input: TaskInput) => Promise<Task>; onTaskUpdate: (id: string, patch: Partial<TaskInput>) => Promise<void>; onError: (error: string) => void }) {
+function Composer({ workspace, defaultProjectId, clockFormat, audioInputMode, tomorrowReminderTime, transcribingAudioIds, onAudioTranscribing, onTaskProcessing, onClose, onSubmit, onTaskUpdate, onError }: { workspace: Workspace; defaultProjectId: string | null; clockFormat: AppSettings["clockFormat"]; audioInputMode: AudioInputMode; tomorrowReminderTime: string; transcribingAudioIds: string[]; onAudioTranscribing: (id: string, active: boolean) => void; onTaskProcessing: (id: string, active: boolean) => void; onClose: () => void; onSubmit: (input: TaskInput) => Promise<Task>; onTaskUpdate: (id: string, patch: Partial<TaskInput>) => Promise<void>; onError: (error: string) => void }) {
   const [title, setTitle] = useState("");
-  const [projectId, setProjectId] = useState<string | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(defaultProjectId);
   const [notes, setNotes] = useState("");
   const [dueAt, setDueAt] = useState("");
   const [sourceType, setSourceType] = useState<SourceType>("manual");

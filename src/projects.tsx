@@ -140,7 +140,7 @@ function ProjectBranch({ organizationId, parentId, depth, workspace, selectedPro
   </ul>;
 }
 
-function ProjectDetail({ project, workspace, onReload, onError }: { project: Project; workspace: Workspace; onReload: () => Promise<void>; onError: (message: string) => void }) {
+export function ProjectDetail({ project, workspace, onReload, onError }: { project: Project; workspace: Workspace; onReload: () => Promise<void>; onError: (message: string) => void }) {
   const [name, setName] = useState(project.name);
   const [description, setDescription] = useState(project.description);
   const [documents, setDocuments] = useState<ProjectDocument[]>([]);

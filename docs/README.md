@@ -5,6 +5,8 @@ describes shipped behaviour unless it says so.
 
 - `implementation-plan.md` - the ordered build plan for the desktop meeting agent, and what is
   deliberately out of scope for now.
+- `information-architecture.md` - the organisation-first application shell and the stable homes for
+  current and future work modules.
 - `domain-model.md` - organisations, projects, people, documents, and what sharing between projects
   means for a single user.
 - `model-providers.md` - speech recognition and language model options, including why signing in to a
