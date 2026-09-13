@@ -44,8 +44,8 @@ import { formatDueDate, taskMatchesView, toDateTimeLocal } from "./date";
 import { mediaSource } from "./media";
 import { ProjectSelect, projectPath, useWorkspace, type Workspace } from "./projects";
 import { LanguageModelProviderSettings, ProviderSetup, SpeechProviderSettings } from "./providers";
-import { DocumentsWorkspace, IntegrationsWorkspace, MeetingsWorkspace, OrganizationOverview, PeopleWorkspace, ProjectOverview, ProjectsWorkspace, WorkspaceNavigation, type WorkbenchArea } from "./workbench";
-import type { AppSettings, AudioAttachment, AudioInputMode, FileAttachment, SourceType, Task, TaskInput, TaskPriority, TaskView } from "./types";
+import { DocumentsWorkspace, IntegrationsWorkspace, MeetingRecordingBanner, MeetingsWorkspace, OrganizationOverview, PeopleWorkspace, ProjectOverview, ProjectsWorkspace, WorkspaceNavigation, type WorkbenchArea } from "./workbench";
+import type { AppSettings, AudioAttachment, AudioInputMode, FileAttachment, Meeting, SourceType, Task, TaskInput, TaskPriority, TaskView } from "./types";
 import packageJson from "../package.json";
 
 const viewItems: Array<{ id: TaskView; label: string; icon: typeof Inbox }> = [
@@ -67,6 +67,7 @@ const viewTitles: Record<TaskView, string> = {
 };
 
 const inTauri = (): boolean => "__TAURI_INTERNALS__" in window;
+const meetingRecordingShortcut = "CommandOrControl+Shift+M";
 const defaultSettings: AppSettings = { welcomeCompleted: false, startAtLogin: true, quickCaptureShortcut: "CommandOrControl+Shift+Space", overdueRemindersEnabled: true, overdueIntervalMinutes: 15, stickyRemindersEnabled: true, tomorrowReminderTime: "08:30", clockFormat: "24h", audioInputMode: "microphone", taskRetentionDays: 7, speech: { model: "small", language: "auto", terminologyLanguage: null }, languageModel: { kind: "unset", local: { baseUrl: "http://127.0.0.1:11434/v1", model: "", managed: false, command: "", idleTimeoutMinutes: 10 }, api: { provider: "", baseUrl: "", model: "" }, agent: { command: "", arguments: [] } } };
 const pageSize = 20;
 export type ReminderPreset = "15m" | "1h" | "3h" | "6h" | "24h" | "tomorrow";
@@ -112,6 +113,8 @@ export default function App() {
   const [listMenuView, setListMenuView] = useState<TaskView | null>(null);
   const [undoCompletion, setUndoCompletion] = useState<{ id: string; previousStatus: Task["status"] } | null>(null);
   const [undoDeletion, setUndoDeletion] = useState<{ id: string; title: string } | null>(null);
+  const [activeMeetingRecording, setActiveMeetingRecording] = useState<Meeting | null>(null);
+  const [meetingRevision, setMeetingRevision] = useState(0);
   const checkedInitialReminders = useRef(false);
   const checkedInitialWelcome = useRef(false);
   const initializedWorkspaceContext = useRef(false);
@@ -243,6 +246,58 @@ export default function App() {
       });
     };
   }, [settings.quickCaptureShortcut]);
+
+  useEffect(() => {
+    if (!inTauri()) return;
+    let active = true;
+    queueShortcutOperation(async () => {
+      try { await unregister(meetingRecordingShortcut); } catch { /* Normally absent on first launch. */ }
+      if (!active) return;
+      try {
+        await register(meetingRecordingShortcut, async () => {
+          const appWindow = getCurrentWindow();
+          await appWindow.show();
+          await appWindow.unminimize();
+          await appWindow.setFocus();
+          if (!active) return;
+          if (activeMeetingRecording) {
+            if (activeMeetingRecording.projectId) {
+              const project = workspace.projects.find((item) => item.id === activeMeetingRecording.projectId);
+              if (project) {
+                setActiveOrganizationId(project.organizationId);
+                setActiveProjectId(project.id);
+                setArea("meetings");
+              }
+            }
+            return;
+          }
+          if (!activeProject) {
+            setError("Select a project before starting a meeting recording.");
+            return;
+          }
+          try {
+            const stamp = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date());
+            const meeting = await api.createMeeting({ projectId: activeProject.id, title: `Meeting - ${stamp}` });
+            const recording = await api.startMeetingRecording(meeting.id);
+            if (!active) return;
+            setActiveMeetingRecording(recording);
+            setMeetingRevision((value) => value + 1);
+            setArea("meetings");
+          } catch (reason) {
+            if (active) setError(String(reason));
+          }
+        });
+      } catch (reason) {
+        if (active) setError(`Could not register the meeting recording shortcut: ${String(reason)}`);
+      }
+    });
+    return () => {
+      active = false;
+      queueShortcutOperation(async () => {
+        try { await unregister(meetingRecordingShortcut); } catch { /* It may already be released. */ }
+      });
+    };
+  }, [activeMeetingRecording, activeProject, workspace.projects]);
 
   useEffect(() => {
     if (!inTauri()) return;
@@ -400,6 +455,25 @@ export default function App() {
     if (inTauri()) void getCurrentWindow().setAlwaysOnTop(true);
   }, [dueReminders.length, settings.overdueRemindersEnabled, settings.stickyRemindersEnabled, settingsLoaded, tasksLoaded]);
 
+  async function startMeetingRecording(meeting: Meeting) {
+    if (activeMeetingRecording) throw new Error(`Already recording ${activeMeetingRecording.title}.`);
+    const recording = await api.startMeetingRecording(meeting.id);
+    setActiveMeetingRecording(recording);
+    setMeetingRevision((value) => value + 1);
+  }
+
+  async function stopMeetingRecording() {
+    if (!activeMeetingRecording) return;
+    try {
+      await api.stopMeetingRecording(activeMeetingRecording.id);
+      setActiveMeetingRecording(null);
+      setMeetingRevision((value) => value + 1);
+    } catch (reason) {
+      setError(String(reason));
+      throw reason;
+    }
+  }
+
   return (
     <main className="app-shell">
       <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
@@ -417,7 +491,7 @@ export default function App() {
         {area === "project-overview" && activeProject && <ProjectOverview project={activeProject} workspace={workspace} tasks={tasks} onArea={setArea} />}
         {area === "people" && activeOrganization && <PeopleWorkspace organization={activeOrganization} onError={setError} />}
         {area === "projects" && activeOrganization && <ProjectsWorkspace organization={activeOrganization} workspace={workspace} activeProject={activeProject} onReload={reloadWorkspace} onProject={(project) => setActiveProjectId(project.id)} onError={setError} />}
-        {area === "meetings" && activeProject && activeOrganization && <MeetingsWorkspace project={activeProject} organization={activeOrganization} onIntegrations={() => { setActiveProjectId(null); setArea("integrations"); }} />}
+        {area === "meetings" && activeProject && activeOrganization && <MeetingsWorkspace project={activeProject} organization={activeOrganization} workspace={workspace} activeRecording={activeMeetingRecording} revision={meetingRevision} onStart={startMeetingRecording} onStop={stopMeetingRecording} onActiveMeetingUpdate={setActiveMeetingRecording} onIntegrations={() => { setActiveProjectId(null); setArea("integrations"); }} onError={setError} />}
         {area === "documents" && activeProject && <DocumentsWorkspace project={activeProject} workspace={workspace} onReload={reloadWorkspace} onError={setError} />}
         {area === "integrations" && activeOrganization && <IntegrationsWorkspace organization={activeOrganization} />}
         {area !== "threads" && !activeOrganization && <section className="workspace-page workspace-start"><div className="module-icon"><Plus size={24} /></div><p className="eyebrow">Start with context</p><h1>Create your first organisation</h1><p>An organisation keeps its projects, people, meetings and documents together without mixing client contexts.</p><button className="primary-button" onClick={() => void createOrganization()}>Create organisation</button></section>}
@@ -428,6 +502,7 @@ export default function App() {
       {welcomeOpen && <WelcomeDialog shortcut={settings.quickCaptureShortcut} settings={settings} onSettings={setSettings} onError={setError} onComplete={() => { void api.updateSettings({ ...settings, welcomeCompleted: true }).then((updated) => { setSettings(updated); setWelcomeOpen(false); }).catch((reason) => setError(String(reason))); }} />}
       {remindersOpen && <ReminderCenter tasks={reminderTasks(tasks)} tomorrowReminderTime={settings.tomorrowReminderTime} onClose={() => setRemindersOpen(false)} onOpen={(task) => { openTask(task); setRemindersOpen(false); }} onDone={(task) => updateTask(task.id, { status: "done" })} onSnooze={(task, preset) => updateTask(task.id, { remindAt: reminderDate(preset, settings.tomorrowReminderTime).toISOString() })} onSnoozeAll={(items, preset) => Promise.all(items.map((task) => updateTask(task.id, { remindAt: reminderDate(preset, settings.tomorrowReminderTime).toISOString() }))).then(() => undefined)} />}
       {stickyReminderOpen && dueReminders.length > 0 && <StickyReminder tasks={dueReminders} tomorrowReminderTime={settings.tomorrowReminderTime} onOpen={(task) => { openTask(task); void releaseStickyReminder(); }} onDone={(task) => updateTask(task.id, { status: "done" })} onSnooze={(task, preset) => updateTask(task.id, { remindAt: reminderDate(preset, settings.tomorrowReminderTime).toISOString() })} onSnoozeAll={(items, preset) => Promise.all(items.map((task) => updateTask(task.id, { remindAt: reminderDate(preset, settings.tomorrowReminderTime).toISOString() }))).then(() => undefined)} />}
+      {activeMeetingRecording && <MeetingRecordingBanner meeting={activeMeetingRecording} project={workspace.projects.find((project) => project.id === activeMeetingRecording.projectId) ?? null} onStop={stopMeetingRecording} />}
       {error && <div className="toast error-toast"><span>{error}</span><button onClick={() => setError(null)}><X size={16} /></button></div>}
       {undoCompletion && <div className="toast undo-toast"><span>Task completed</span><button onClick={() => void undoCompletedTask()}>Undo</button></div>}
       {undoDeletion && <div className="toast undo-toast"><span>{undoDeletion.title} deleted</span><button onClick={() => void undoDeletedTask()}>Undo</button></div>}

@@ -218,6 +218,30 @@ export interface ProjectDocumentInput {
   mimeType?: string | null;
 }
 
+export type MeetingStatus = "planned" | "recording" | "recorded";
+
+export interface Meeting {
+  id: string;
+  projectId: string | null;
+  title: string;
+  status: MeetingStatus;
+  scheduledStart: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  /** Stereo WAV: microphone on the left, system audio on the right. */
+  recordingPath: string | null;
+  durationSeconds: number | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export interface MeetingInput {
+  projectId?: string | null;
+  title: string;
+  scheduledStart?: string | null;
+}
+
 export interface Person {
   id: string;
   displayName: string;

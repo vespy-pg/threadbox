@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { readImage } from "@tauri-apps/plugin-clipboard-manager";
 import { setMediaRoot } from "./media";
-import type { AppSettings, ApiProvider, LanguageModelStatus, ModelStatus, Organization, OrganizationMember, Person, Project, ProjectDocument, ProjectDocumentInput, ProjectLanguage, ProviderProbe, SpeechModelId, Task, TaskInput, TaskPatch } from "./types";
+import type { AppSettings, ApiProvider, LanguageModelStatus, Meeting, MeetingInput, ModelStatus, Organization, OrganizationMember, Person, Project, ProjectDocument, ProjectDocumentInput, ProjectLanguage, ProviderProbe, SpeechModelId, Task, TaskInput, TaskPatch } from "./types";
 
 const inTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 
@@ -226,6 +226,30 @@ export const api = {
 
   async deleteProjectDocument(id: string): Promise<void> {
     await invoke<void>("delete_project_document", { id });
+  },
+
+  async listMeetings(projectId?: string | null): Promise<Meeting[]> {
+    return inTauri() ? invoke<Meeting[]>("list_meetings", { projectId: projectId ?? null }) : [];
+  },
+
+  async createMeeting(input: MeetingInput): Promise<Meeting> {
+    return invoke<Meeting>("create_meeting", { input: { projectId: null, scheduledStart: null, ...input } });
+  },
+
+  async updateMeeting(patch: { id: string } & Partial<MeetingInput>): Promise<Meeting> {
+    return invoke<Meeting>("update_meeting", { patch });
+  },
+
+  async deleteMeeting(id: string): Promise<void> {
+    await invoke<void>("delete_meeting", { id });
+  },
+
+  async startMeetingRecording(id: string): Promise<Meeting> {
+    return invoke<Meeting>("start_meeting_recording", { id });
+  },
+
+  async stopMeetingRecording(id: string): Promise<Meeting> {
+    return invoke<Meeting>("stop_meeting_recording", { id });
   },
 
   /** Fetched once so the interface can resolve the relative references stored in the database. */

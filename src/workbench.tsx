@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowRight, BriefcaseBusiness, CalendarDays, CheckCircle2, Clock3, FileText, FolderKanban, Inbox, LayoutDashboard, Link2, ListTodo, Mail, Plus, Plug, Settings2, Trash2, UserPlus, Users } from "lucide-react";
+import { ArrowRight, BriefcaseBusiness, CalendarDays, CheckCircle2, Clock3, FileText, FolderKanban, Inbox, LayoutDashboard, Link2, ListTodo, Mail, Mic, Play, Plus, Plug, Square, Settings2, Trash2, UserPlus, Users } from "lucide-react";
 
 import { api } from "./api";
 import { ProjectDetail, projectPath, type Workspace } from "./projects";
-import type { Organization, OrganizationMember, Person, Project, Task } from "./types";
+import type { Meeting, Organization, OrganizationMember, Person, Project, Task } from "./types";
 
 export type WorkbenchArea = "organization-overview" | "projects" | "people" | "integrations" | "project-overview" | "threads" | "meetings" | "documents";
 
@@ -113,8 +113,81 @@ export function ProjectsWorkspace({ organization, workspace, activeProject, onRe
   return <WorkspacePage eyebrow="Organisation" title="Projects" description={`Projects keep the work, meetings and documents of ${organization.name} in a clear context.`} action={<button className="primary-button" onClick={addProject}><Plus size={16} />New project</button>}><div className="projects-workspace"><aside className="project-directory">{projects.map((project) => <button key={project.id} className={project.id === selectedId ? "active" : ""} onClick={() => { setSelectedId(project.id); onProject(project); }}><FolderKanban size={16} /><span><strong>{project.name}</strong><small>{project.description || "No description"}</small></span></button>)}{projects.length === 0 && <EmptyPanel title="No projects yet" text="Create the first project for this organisation." />}</aside><section className="project-editor">{selected ? <ProjectDetail key={selected.id} project={selected} workspace={workspace} onReload={onReload} onError={onError} /> : <div className="project-editor-empty"><Settings2 size={24} /><h2>Select a project</h2><p>Its context, language and documents will appear here.</p></div>}</section></div></WorkspacePage>;
 }
 
-export function MeetingsWorkspace({ project, organization, onIntegrations }: { project: Project; organization: Organization; onIntegrations: () => void }) {
-  return <WorkspacePage eyebrow={`${organization.name} / ${project.name}`} title="Meetings" description="A project calendar, recordings and meeting outcomes will live together here."><section className="empty-module"><div className="module-icon"><CalendarDays size={25} /></div><p className="eyebrow">Next implementation step</p><h2>Connect the calendar, then capture the meeting</h2><p>Google Calendar will provide the schedule. Threadbox will add recording, transcription, notes, decisions and action items without becoming another calendar to maintain.</p><div className="module-roadmap"><span className="ready"><CheckCircle2 size={15} />Project context ready</span><span><Clock3 size={15} />Google Calendar integration</span><span><Clock3 size={15} />Two-track recording</span><span><Clock3 size={15} />Transcript and actions</span></div><button className="secondary-button" onClick={onIntegrations}><Plug size={15} />Open integrations</button></section></WorkspacePage>;
+export function MeetingsWorkspace({ project, organization, workspace, activeRecording, revision, onStart, onStop, onActiveMeetingUpdate, onIntegrations, onError }: { project: Project; organization: Organization; workspace: Workspace; activeRecording: Meeting | null; revision: number; onStart: (meeting: Meeting) => Promise<void>; onStop: () => Promise<void>; onActiveMeetingUpdate: (meeting: Meeting) => void; onIntegrations: () => void; onError: (message: string) => void }) {
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [creating, setCreating] = useState(false);
+  const [title, setTitle] = useState("");
+  const [scheduledStart, setScheduledStart] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const projects = workspace.projects.filter((item) => item.organizationId === organization.id);
+  const load = useCallback(async () => {
+    try { setMeetings(await api.listMeetings(project.id)); }
+    catch (reason) { onError(String(reason)); }
+  }, [onError, project.id]);
+  useEffect(() => { void load(); }, [load, revision]);
+
+  async function create(startNow: boolean) {
+    if (!title.trim()) return;
+    setBusyId("new");
+    try {
+      const meeting = await api.createMeeting({ projectId: project.id, title: title.trim(), scheduledStart: scheduledStart ? new Date(scheduledStart).toISOString() : null });
+      setTitle(""); setScheduledStart(""); setCreating(false);
+      if (startNow) await onStart(meeting);
+      await load();
+    } catch (reason) { onError(String(reason)); }
+    finally { setBusyId(null); }
+  }
+
+  async function update(meeting: Meeting, patch: { title?: string; projectId?: string | null; scheduledStart?: string | null }) {
+    setBusyId(meeting.id);
+    try {
+      const updated = await api.updateMeeting({ id: meeting.id, ...patch });
+      if (activeRecording?.id === updated.id) onActiveMeetingUpdate(updated);
+      await load();
+    } catch (reason) { onError(String(reason)); }
+    finally { setBusyId(null); }
+  }
+
+  async function remove(meeting: Meeting) {
+    if (!window.confirm(`Delete ${meeting.title}?`)) return;
+    setBusyId(meeting.id);
+    try { await api.deleteMeeting(meeting.id); await load(); }
+    catch (reason) { onError(String(reason)); }
+    finally { setBusyId(null); }
+  }
+
+  async function start(meeting: Meeting) {
+    setBusyId(meeting.id);
+    try { await onStart(meeting); await load(); }
+    catch (reason) { onError(String(reason)); }
+    finally { setBusyId(null); }
+  }
+
+  return <WorkspacePage eyebrow={`${organization.name} / ${project.name}`} title="Meetings" description="Plan, capture and review the conversations that create work." action={<button className="primary-button" onClick={() => setCreating(true)}><Plus size={16} />New meeting</button>}>
+    {creating && <section className="meeting-create-card"><div className="meeting-create-fields"><label><span>Meeting title</span><input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Weekly project sync" /></label><label><span>Scheduled start</span><input type="datetime-local" value={scheduledStart} onChange={(event) => setScheduledStart(event.target.value)} /></label></div><p><Mic size={14} />Recording captures your microphone on the left channel and the system audio on the right. Ctrl/Cmd+Shift+M starts immediately in the current project.</p><div className="inline-create-actions"><button className="text-button" onClick={() => setCreating(false)}>Cancel</button><button className="secondary-button" disabled={!title.trim() || busyId === "new"} onClick={() => void create(false)}>Save for later</button><button className="primary-button recording-action" disabled={!title.trim() || busyId === "new" || Boolean(activeRecording)} onClick={() => void create(true)}><Mic size={15} />Save and record</button></div></section>}
+    <div className="meeting-list">{meetings.map((meeting) => <article key={meeting.id} className={`meeting-card ${meeting.status === "recording" ? "recording" : ""}`}><div className={`meeting-status-icon ${meeting.status}`} >{meeting.status === "recording" ? <Mic size={18} /> : meeting.status === "recorded" ? <CheckCircle2 size={18} /> : <CalendarDays size={18} />}</div><div className="meeting-card-main"><div className="meeting-card-heading"><input aria-label="Meeting title" defaultValue={meeting.title} onBlur={(event) => { const next = event.target.value.trim(); if (next && next !== meeting.title) void update(meeting, { title: next }); }} /><span className={`status-pill ${meeting.status}`}>{meeting.status}</span></div><div className="meeting-meta"><span><Clock3 size={13} />{formatMeetingDate(meeting.scheduledStart ?? meeting.startedAt ?? meeting.createdAt)}</span>{meeting.durationSeconds !== null && <span>{formatMeetingDuration(meeting.durationSeconds)}</span>}<label><span>Project</span><select value={meeting.projectId ?? ""} disabled={busyId === meeting.id} onChange={(event) => void update(meeting, { projectId: event.target.value || null })}><option value="">Unassigned</option>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div><p className="meeting-track-note">{meeting.recordingPath ? "Stereo source saved: microphone left, system audio right." : meeting.status === "recording" ? "Both audio tracks are being captured now." : "Ready for two-track recording."}</p></div><div className="meeting-actions">{meeting.status === "planned" && <button className="primary-button recording-action" disabled={Boolean(activeRecording) || busyId === meeting.id} onClick={() => void start(meeting)}><Mic size={15} />Record</button>}{meeting.status === "recording" && activeRecording?.id === meeting.id && <button className="stop-meeting-button" onClick={() => void onStop()}><Square size={14} />Stop</button>}{meeting.recordingPath && <button className="secondary-button" onClick={() => void api.playRecording(meeting.recordingPath!).catch((reason) => onError(String(reason)))}><Play size={14} />Play</button>}<button className="icon-button danger" aria-label="Delete meeting" disabled={meeting.status === "recording" || busyId === meeting.id} onClick={() => void remove(meeting)}><Trash2 size={16} /></button></div></article>)}{meetings.length === 0 && !creating && <section className="empty-module compact"><div className="module-icon"><CalendarDays size={25} /></div><h2>No meetings in this project</h2><p>Create one now or connect Google Calendar when the integration becomes available.</p><button className="secondary-button" onClick={onIntegrations}><Plug size={15} />Open integrations</button></section>}</div>
+  </WorkspacePage>;
+}
+
+export function MeetingRecordingBanner({ meeting, project, onStop }: { meeting: Meeting; project: Project | null; onStop: () => Promise<void> }) {
+  const [seconds, setSeconds] = useState(() => elapsedRecordingSeconds(meeting.startedAt));
+  const [stopping, setStopping] = useState(false);
+  useEffect(() => { const timer = window.setInterval(() => setSeconds(elapsedRecordingSeconds(meeting.startedAt)), 1_000); return () => window.clearInterval(timer); }, [meeting.startedAt]);
+  return <aside className="meeting-recording-banner" aria-live="polite"><span className="recording-pulse" /><div><strong>Recording {meeting.title}</strong><small>{project?.name ?? "Unassigned"} - microphone + system audio - {formatMeetingDuration(seconds)}</small></div><button disabled={stopping} onClick={() => { setStopping(true); void onStop().finally(() => setStopping(false)); }}><Square size={14} />{stopping ? "Saving..." : "Stop and save"}</button></aside>;
+}
+
+function elapsedRecordingSeconds(startedAt: string | null): number {
+  if (!startedAt) return 0;
+  return Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1_000));
+}
+
+function formatMeetingDuration(seconds: number): string {
+  const rounded = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, "0")}`;
+}
+
+function formatMeetingDate(value: string): string {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
 export function IntegrationsWorkspace({ organization }: { organization: Organization }) {

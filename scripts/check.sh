@@ -9,6 +9,7 @@ nice -n 10 docker build \
   --resource "memory=${check_memory}" \
   --resource "cpu-quota=${check_cpu_quota}" \
   --build-arg "CARGO_BUILD_JOBS=${check_jobs}" \
-  -f Dockerfile.check \
+  -f Dockerfile.release \
+  --target check \
   -t threadbox-check \
   .

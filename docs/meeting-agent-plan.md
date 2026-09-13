@@ -1,6 +1,7 @@
 # Meeting agent plan
 
-Status: draft. Not implemented. Read together with `privacy-and-sync-model.md`, which defines the
+Status: implementation in progress. Meetings and two-track recording are implemented; transcription,
+analysis and vocabulary remain. Read together with `privacy-and-sync-model.md`, which defines the
 privacy levels this plan has to fit, and `vocabulary-domain.md`, which describes the terminology
 feature the transcription quality depends on.
 

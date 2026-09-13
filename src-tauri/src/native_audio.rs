@@ -25,12 +25,36 @@ pub struct NativeAudioPlayer {
     generation: Arc<AtomicU64>,
 }
 
+#[derive(Clone, Default)]
+pub struct MeetingAudioRecorder {
+    active: Arc<Mutex<Option<ActiveMeetingRecording>>>,
+}
+
 struct ActiveRecording {
     stream: Stream,
     samples: Arc<Mutex<Vec<f32>>>,
     sample_rate: u32,
     channels: u16,
     started_at: Instant,
+}
+
+struct ActiveMeetingRecording {
+    meeting_id: String,
+    microphone: CapturedTrack,
+    system: CapturedTrack,
+    started_at: Instant,
+}
+
+struct CapturedTrack {
+    stream: Stream,
+    samples: Arc<Mutex<Vec<f32>>>,
+    sample_rate: u32,
+    channels: u16,
+}
+
+pub struct MeetingRecordingResult {
+    pub wav: Vec<u8>,
+    pub duration_seconds: f64,
 }
 
 #[derive(Serialize)]
@@ -118,6 +142,86 @@ impl NativeAudioRecorder {
     }
 }
 
+impl MeetingAudioRecorder {
+    pub fn start(&self, meeting_id: &str) -> AppResult<()> {
+        let mut active = self
+            .active
+            .lock()
+            .map_err(|_| audio_error("The meeting recorder state is unavailable"))?;
+        if active.is_some() {
+            return Err(audio_error("A meeting recording is already in progress"));
+        }
+
+        let host = preferred_host()?;
+        let microphone = host
+            .default_input_device()
+            .ok_or_else(|| audio_error("No default microphone is available"))?;
+        let system = system_monitor(&host)?;
+        let microphone = capture_track(&microphone)?;
+        let system = capture_track(&system)?;
+        microphone
+            .stream
+            .play()
+            .map_err(|error| audio_error(format!("Could not start the microphone: {error}")))?;
+        if let Err(error) = system.stream.play() {
+            drop(microphone);
+            return Err(audio_error(format!(
+                "Could not start the system audio monitor: {error}"
+            )));
+        }
+
+        *active = Some(ActiveMeetingRecording {
+            meeting_id: meeting_id.into(),
+            microphone,
+            system,
+            started_at: Instant::now(),
+        });
+        Ok(())
+    }
+
+    pub fn stop(&self, meeting_id: &str) -> AppResult<MeetingRecordingResult> {
+        self.ensure_active_meeting(meeting_id)?;
+        std::thread::sleep(Duration::from_secs(2));
+        let recording = self
+            .active
+            .lock()
+            .map_err(|_| audio_error("The meeting recorder state is unavailable"))?
+            .take()
+            .ok_or_else(|| audio_error("No meeting recording is in progress"))?;
+        let duration_seconds = recording.started_at.elapsed().as_secs_f64();
+        let microphone = finish_track(recording.microphone)?;
+        let system = finish_track(recording.system)?;
+        if microphone.is_empty() && system.is_empty() {
+            return Err(audio_error("The meeting recording is empty"));
+        }
+        Ok(MeetingRecordingResult {
+            wav: encode_stereo_wav(&microphone, &system, 16_000)?,
+            duration_seconds,
+        })
+    }
+
+    pub fn cancel(&self, meeting_id: &str) -> AppResult<()> {
+        self.ensure_active_meeting(meeting_id)?;
+        self.active
+            .lock()
+            .map_err(|_| audio_error("The meeting recorder state is unavailable"))?
+            .take();
+        Ok(())
+    }
+
+    fn ensure_active_meeting(&self, meeting_id: &str) -> AppResult<()> {
+        let active = self
+            .active
+            .lock()
+            .map_err(|_| audio_error("The meeting recorder state is unavailable"))?;
+        match active.as_ref() {
+            Some(recording) if recording.meeting_id == meeting_id => Ok(()),
+            Some(_) => Err(audio_error("A different meeting is being recorded")),
+            None => Err(audio_error("No meeting recording is in progress")),
+        }
+    }
+}
+
 pub fn warm_up() -> AppResult<()> {
     let host = preferred_host()?;
     if let Some(device) = host.default_input_device() {
@@ -175,14 +279,26 @@ fn play_recording(
     let mut reader = hound::WavReader::new(std::io::Cursor::new(bytes))
         .map_err(|error| audio_error(format!("Invalid WAV recording: {error}")))?;
     let spec = reader.spec();
-    if spec.channels != 1 || spec.bits_per_sample != 16 {
-        return Err(audio_error("Threadbox expects 16-bit mono WAV recordings"));
+    if ![1, 2].contains(&spec.channels) || spec.bits_per_sample != 16 {
+        return Err(audio_error(
+            "Threadbox expects 16-bit mono or stereo WAV recordings",
+        ));
     }
-    let samples = reader
+    let interleaved = reader
         .samples::<i16>()
         .map(|sample| sample.map(|value| value as f32 / 32_768.0))
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| audio_error(format!("Could not decode the recording: {error}")))?;
+    let samples = if spec.channels == 2 {
+        interleaved
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|frame| (frame[0] + frame[1]) * 0.5)
+            .collect()
+    } else {
+        interleaved
+    };
     if samples.is_empty() {
         return Err(audio_error("The recording is empty"));
     }
@@ -434,6 +550,49 @@ fn build_stream(
     stream.map_err(|error| audio_error(format!("Could not open the microphone: {error}")))
 }
 
+fn system_monitor(host: &cpal::Host) -> AppResult<cpal::Device> {
+    host.input_devices()
+        .map_err(|error| audio_error(format!("Could not list audio inputs: {error}")))?
+        .find(|device| {
+            device.description().is_ok_and(|description| {
+                let name = description.name().to_lowercase();
+                name.contains("monitor") || name.contains("loopback")
+            })
+        })
+        .ok_or_else(|| {
+            audio_error(
+                "No system audio monitor is available. Enable a monitor source in PipeWire or PulseAudio.",
+            )
+        })
+}
+
+fn capture_track(device: &cpal::Device) -> AppResult<CapturedTrack> {
+    let supported = device
+        .default_input_config()
+        .map_err(|error| audio_error(format!("Could not read an audio input format: {error}")))?;
+    let sample_format = supported.sample_format();
+    let config: StreamConfig = supported.into();
+    let samples = Arc::new(Mutex::new(Vec::new()));
+    let stream = build_stream(device, &config, sample_format, samples.clone())?;
+    Ok(CapturedTrack {
+        stream,
+        samples,
+        sample_rate: config.sample_rate,
+        channels: config.channels,
+    })
+}
+
+fn finish_track(track: CapturedTrack) -> AppResult<Vec<f32>> {
+    drop(track.stream);
+    let interleaved = track
+        .samples
+        .lock()
+        .map_err(|_| audio_error("A recorded meeting track is unavailable"))?
+        .clone();
+    let mono = mix_to_mono(&interleaved, track.channels);
+    Ok(downsample(&mono, track.sample_rate, 16_000))
+}
+
 fn extend_samples(samples: &Mutex<Vec<f32>>, values: impl Iterator<Item = f32>) {
     if let Ok(mut target) = samples.lock() {
         target.extend(values);
@@ -500,6 +659,41 @@ fn encode_wav(samples: &[f32], sample_rate: u32) -> AppResult<Vec<u8>> {
     Ok(wav)
 }
 
+fn encode_stereo_wav(left: &[f32], right: &[f32], sample_rate: u32) -> AppResult<Vec<u8>> {
+    let frame_count = left.len().max(right.len());
+    let data_size = frame_count
+        .checked_mul(4)
+        .and_then(|size| u32::try_from(size).ok())
+        .ok_or_else(|| audio_error("The meeting recording is too long to encode"))?;
+    let mut wav = Vec::with_capacity(44 + data_size as usize);
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&(36 + data_size).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16_u32.to_le_bytes());
+    wav.extend_from_slice(&1_u16.to_le_bytes());
+    wav.extend_from_slice(&2_u16.to_le_bytes());
+    wav.extend_from_slice(&sample_rate.to_le_bytes());
+    wav.extend_from_slice(&(sample_rate * 4).to_le_bytes());
+    wav.extend_from_slice(&4_u16.to_le_bytes());
+    wav.extend_from_slice(&16_u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&data_size.to_le_bytes());
+    for index in 0..frame_count {
+        wav.extend_from_slice(&pcm_i16(left.get(index).copied().unwrap_or(0.0)).to_le_bytes());
+        wav.extend_from_slice(&pcm_i16(right.get(index).copied().unwrap_or(0.0)).to_le_bytes());
+    }
+    Ok(wav)
+}
+
+fn pcm_i16(sample: f32) -> i16 {
+    let sample = sample.clamp(-1.0, 1.0);
+    if sample < 0.0 {
+        (sample * 32_768.0) as i16
+    } else {
+        (sample * 32_767.0) as i16
+    }
+}
+
 fn audio_error(message: impl Into<String>) -> AppError {
     AppError::InvalidInput(message.into())
 }
@@ -520,6 +714,17 @@ mod tests {
     #[test]
     fn mixes_interleaved_stereo_to_mono() {
         assert_eq!(mix_to_mono(&[1.0, -1.0, 0.5, 0.5], 2), [0.0, 0.5]);
+    }
+
+    #[test]
+    fn encodes_microphone_and_system_audio_as_two_tracks() {
+        let wav = encode_stereo_wav(&[0.5, -0.5], &[0.25], 16_000).unwrap();
+        assert_eq!(u16::from_le_bytes(wav[22..24].try_into().unwrap()), 2);
+        assert_eq!(u32::from_le_bytes(wav[24..28].try_into().unwrap()), 16_000);
+        assert_eq!(u32::from_le_bytes(wav[40..44].try_into().unwrap()), 8);
+        assert_eq!(i16::from_le_bytes(wav[44..46].try_into().unwrap()), 16_383);
+        assert_eq!(i16::from_le_bytes(wav[46..48].try_into().unwrap()), 8_191);
+        assert_eq!(i16::from_le_bytes(wav[50..52].try_into().unwrap()), 0);
     }
 
     #[test]

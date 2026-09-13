@@ -44,7 +44,7 @@ transcripts, and learning from the user's corrections.
 
 ## Status
 
-**Steps 1 to 3 are implemented**, on branch `feature/meeting-agent-domain-foundation`, not merged.
+**Steps 1 to 4 are implemented**, on branch `feature/meeting-agent-domain-foundation`, not merged.
 The application shell has subsequently been reorganised around organisations and projects before
 starting step 4. `information-architecture.md` records the product structure this establishes.
 
@@ -66,7 +66,7 @@ starting step 4. `information-architecture.md` records the product structure thi
   because a project picker without project content to show is not worth designing twice.
 - Moving a project between organisations is rejected with an explicit error rather than half-supported.
 
-Verified with the repository's own checks in `Dockerfile.check`: `cargo fmt --check`, `cargo clippy
+Verified with the repository's resource-limited `Dockerfile.release` check target: `cargo fmt --check`, `cargo clippy
 --all-targets -- -D warnings`, and `cargo test` with 19 tests passing, 9 of them new for this step. The
 graphical application has not been launched, since the host lacks the GTK development libraries and the
 project builds in Docker.
@@ -143,4 +143,27 @@ with `-D warnings`. The graphical application has not been launched, for the sam
 Verified with 48 Rust tests, clippy with `-D warnings`, 31 interface tests, `tsc --noEmit` and the
 production interface build. The graphical application has not been launched.
 
-- Steps 4 to 7: not started.
+### Step 4, meetings and two-track recording
+
+- Schema version 6 adds meetings with planned, recording and recorded states, optional scheduling,
+  project assignment, recording metadata and soft deletion. A project move is recorded in
+  `meeting_project_history`; the content-addressed recording remains attached to the meeting, so no
+  media copy or path rewrite is required.
+- Meeting recording opens the default microphone and the PulseAudio or PipeWire monitor
+  simultaneously. Both inputs are downsampled to 16 kHz and written into one 16-bit stereo WAV with
+  the microphone on the left and system audio on the right. Playback accepts both the earlier mono
+  voice notes and the new stereo meeting source.
+- A recording can be started from a planned meeting, while creating one, or globally with
+  `CommandOrControl+Shift+M` in the current project. The persistent recording banner remains visible
+  while navigating elsewhere in the application and provides the stop-and-save action.
+- The Meetings surface creates, schedules, renames, records, plays, deletes and moves meetings. A
+  meeting may be unassigned or reassigned before, during or after capture, and the UI states exactly
+  which two tracks are being recorded.
+- Meeting recordings participate in content-addressed media retention, so task or document cleanup
+  cannot remove a WAV still referenced by a meeting.
+
+Verified with clippy using `-D warnings`, 52 Rust tests including four recording and meeting tests,
+31 interface tests, and `tsc --noEmit`. Physical microphone and monitor capture remains a device-level
+acceptance check after the refreshed application is launched.
+
+- Steps 5 to 7: not started.

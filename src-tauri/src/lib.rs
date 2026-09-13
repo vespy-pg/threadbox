@@ -3,6 +3,7 @@ mod documents;
 mod error;
 mod integration;
 mod media;
+mod meetings;
 mod native_audio;
 mod native_messaging;
 mod providers;
@@ -18,7 +19,10 @@ use base64::Engine;
 use database::{Database, Task, TaskInput};
 use documents::{ProjectDocument, ProjectDocumentInput};
 use error::AppResult;
-use native_audio::{NativeAudioPlayer, NativeAudioRecorder, NativeRecordingResult};
+use meetings::{Meeting, MeetingInput};
+use native_audio::{
+    MeetingAudioRecorder, NativeAudioPlayer, NativeAudioRecorder, NativeRecordingResult,
+};
 use providers::{LanguageModelStatus, ProviderProbe};
 use serde_json::Value;
 use settings::AppSettings;
@@ -262,6 +266,71 @@ fn delete_project_document(database: tauri::State<'_, Database>, id: String) -> 
     database.delete_project_document(&id)
 }
 
+#[tauri::command]
+fn list_meetings(
+    database: tauri::State<'_, Database>,
+    project_id: Option<String>,
+) -> AppResult<Vec<Meeting>> {
+    database.list_meetings(project_id.as_deref())
+}
+
+#[tauri::command]
+fn create_meeting(database: tauri::State<'_, Database>, input: MeetingInput) -> AppResult<Meeting> {
+    database.create_meeting(input)
+}
+
+#[tauri::command]
+fn update_meeting(database: tauri::State<'_, Database>, patch: Value) -> AppResult<Meeting> {
+    database.update_meeting(patch)
+}
+
+#[tauri::command]
+fn delete_meeting(database: tauri::State<'_, Database>, id: String) -> AppResult<()> {
+    database.delete_meeting(&id)
+}
+
+#[tauri::command]
+async fn start_meeting_recording(
+    database: tauri::State<'_, Database>,
+    recorder: tauri::State<'_, MeetingAudioRecorder>,
+    id: String,
+) -> AppResult<Meeting> {
+    database.get_meeting(&id)?;
+    let owned_id = id.clone();
+    let recorder = recorder.inner().clone();
+    let recording_worker = recorder.clone();
+    tauri::async_runtime::spawn_blocking(move || recording_worker.start(&owned_id))
+        .await
+        .map_err(|error| error::AppError::InvalidInput(error.to_string()))??;
+    match database.mark_meeting_recording(&id) {
+        Ok(meeting) => Ok(meeting),
+        Err(error) => {
+            let _ = recorder.cancel(&id);
+            Err(error)
+        }
+    }
+}
+
+#[tauri::command]
+async fn stop_meeting_recording(
+    database: tauri::State<'_, Database>,
+    recorder: tauri::State<'_, MeetingAudioRecorder>,
+    id: String,
+) -> AppResult<Meeting> {
+    let owned_id = id.clone();
+    let recorder = recorder.inner().clone();
+    let recording = tauri::async_runtime::spawn_blocking(move || recorder.stop(&owned_id))
+        .await
+        .map_err(|error| error::AppError::InvalidInput(error.to_string()))??;
+    match database.store_meeting_recording(&id, &recording.wav, recording.duration_seconds) {
+        Ok(meeting) => Ok(meeting),
+        Err(error) => {
+            let _ = database.reset_meeting_after_failed_recording(&id);
+            Err(error)
+        }
+    }
+}
+
 /// Stored media is recorded relative to this directory, so the interface needs it to display a file.
 #[tauri::command]
 fn media_root(database: tauri::State<'_, Database>) -> AppResult<String> {
@@ -467,6 +536,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(database)
         .manage(NativeAudioRecorder::default())
+        .manage(MeetingAudioRecorder::default())
         .manage(NativeAudioPlayer::default())
         .setup(|app| {
             app.handle().plugin(tauri_plugin_autostart::init(
@@ -532,6 +602,12 @@ pub fn run() {
             create_project_document,
             update_project_document,
             delete_project_document,
+            list_meetings,
+            create_meeting,
+            update_meeting,
+            delete_meeting,
+            start_meeting_recording,
+            stop_meeting_recording,
             media_root,
             project_language,
             save_data_url,

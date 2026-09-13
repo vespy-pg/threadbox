@@ -1,6 +1,7 @@
 # Domain model
 
-Status: draft. Implementation in progress, see `implementation-plan.md`.
+Status: implemented through meeting capture. Transcription and derived artefacts remain, see
+`implementation-plan.md`.
 
 ## Scope of this document
 

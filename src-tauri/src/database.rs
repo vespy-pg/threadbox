@@ -161,6 +161,10 @@ impl Database {
             crate::workspace::migrate_organization_people(&connection)?;
             connection.pragma_update(None, "user_version", 5)?;
         }
+        if version < 6 {
+            crate::meetings::migrate_schema(&connection)?;
+            connection.pragma_update(None, "user_version", 6)?;
+        }
         Ok(())
     }
 
@@ -677,6 +681,13 @@ impl Database {
         drop(statement);
         let mut statement = connection
             .prepare("SELECT media_path FROM project_documents WHERE media_path IS NOT NULL")?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        for row in rows {
+            referenced.insert(row?);
+        }
+        drop(statement);
+        let mut statement = connection
+            .prepare("SELECT recording_path FROM meetings WHERE recording_path IS NOT NULL")?;
         let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
         for row in rows {
             referenced.insert(row?);
