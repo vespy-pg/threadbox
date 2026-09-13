@@ -9,3 +9,7 @@
    lightweight frontend checks during iteration and reserve the full check for meaningful milestones.
 6. Read and follow the relevant shared machine rules in `~/.ai/rules/`; they remain the source of
    truth and must not be duplicated here.
+7. Before handing off completed application code changes for local testing, run `npm run
+   update:local` so the current user's launcher points to the latest resource-limited build. Skip it
+   only when the user explicitly asks not to build or when the change does not affect the application
+   artifact.

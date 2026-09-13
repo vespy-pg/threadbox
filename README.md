@@ -119,7 +119,15 @@ The global capture shortcut, login autostart, 12/24-hour clock and overdue remin
 npm run release:linux
 ```
 
-The release script limits the build to 4 CPU cores, 6 GB of memory, 3 concurrent Rust jobs, and 5 GB of retained Docker build cache. Override these defaults with `THREADBOX_BUILD_MEMORY`, `THREADBOX_BUILD_CPU_QUOTA`, `THREADBOX_BUILD_JOBS`, and `THREADBOX_BUILD_CACHE_LIMIT`. Packages are written under `release/linux/`, and the Firefox extension is written under `release/extension/`.
+The release script limits the build to 1 CPU core, 2 GB of memory, 1 concurrent Rust job, and 5 GB of retained Docker build cache. Override these defaults with `THREADBOX_BUILD_MEMORY`, `THREADBOX_BUILD_CPU_QUOTA`, `THREADBOX_BUILD_JOBS`, and `THREADBOX_BUILD_CACHE_LIMIT`. Packages are written under `release/linux/`, and the Firefox extension is written under `release/extension/`.
+
+To build the application and refresh the current user's installation without `sudo`, run:
+
+```bash
+npm run update:local
+```
+
+This installs a stable AppImage launcher under `~/.local`, updates the application menu entry, and leaves the system package untouched. Close any running Threadbox window before launching the refreshed application.
 
 ## Privacy
 
