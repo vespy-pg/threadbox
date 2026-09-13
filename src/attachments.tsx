@@ -33,7 +33,7 @@ function mimeTypeFromName(name: string): string {
   return "text/plain";
 }
 
-function fileToDataUrl(file: File): Promise<string> {
+export function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));

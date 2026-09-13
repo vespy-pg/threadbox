@@ -8,6 +8,7 @@ const task = (overrides: Partial<Task>): Task => ({
   notes: "",
   status: "todo",
   priority: "mid",
+  projectId: null,
   sourceType: "manual",
   sourceUrl: null,
   sourceLabel: null,

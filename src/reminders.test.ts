@@ -62,7 +62,7 @@ describe("audio transcripts", () => {
 
 describe("task priority ordering", () => {
   it("sorts by priority and then newest creation time", () => {
-    const base: Omit<Task, "id" | "title" | "priority" | "createdAt"> = { notes: "", status: "inbox", sourceType: "manual", sourceUrl: null, sourceLabel: null, sourceAuthor: null, sourceExcerpt: null, dueAt: null, remindAt: null, screenshots: [], audioAttachments: [], links: [], fileAttachments: [], updatedAt: "2026-09-08T10:00:00Z", completedAt: null, deletedAt: null };
+    const base: Omit<Task, "id" | "title" | "priority" | "createdAt"> = { notes: "", status: "inbox", projectId: null, sourceType: "manual", sourceUrl: null, sourceLabel: null, sourceAuthor: null, sourceExcerpt: null, dueAt: null, remindAt: null, screenshots: [], audioAttachments: [], links: [], fileAttachments: [], updatedAt: "2026-09-08T10:00:00Z", completedAt: null, deletedAt: null };
     const tasks: Task[] = [
       { ...base, id: "low", title: "Low", priority: "low", createdAt: "2026-09-08T12:00:00Z" },
       { ...base, id: "high-old", title: "High old", priority: "high", createdAt: "2026-09-08T09:00:00Z" },

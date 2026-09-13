@@ -16,6 +16,8 @@ pub enum AppError {
     Audio(#[from] hound::Error),
     #[error("Speech recognition error: {0}")]
     Speech(String),
+    #[error("Credential store error: {0}")]
+    Keyring(#[from] keyring::Error),
     #[error("Invalid input: {0}")]
     InvalidInput(String),
     #[error("Threadbox could not locate its data directory")]

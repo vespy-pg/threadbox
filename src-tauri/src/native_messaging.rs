@@ -70,6 +70,7 @@ pub fn run() -> AppResult<()> {
                     notes,
                     status: "inbox".into(),
                     priority: "mid".into(),
+                    project_id: None,
                     source_type,
                     source_url,
                     source_label,

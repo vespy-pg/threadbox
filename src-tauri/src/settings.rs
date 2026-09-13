@@ -3,7 +3,10 @@ use std::{fs, path::PathBuf};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{AppError, AppResult};
+use crate::{
+    error::{AppError, AppResult},
+    providers::{self, LanguageModelSettings, SpeechSettings},
+};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -25,6 +28,14 @@ pub struct AppSettings {
     pub audio_input_mode: String,
     #[serde(default = "default_task_retention_days")]
     pub task_retention_days: u64,
+    /// Local speech recognition. Absent in files written before providers were configurable, which is
+    /// why it carries a default rather than being required.
+    #[serde(default)]
+    pub speech: SpeechSettings,
+    /// The language model that answers analysis requests. API keys are never stored here; see
+    /// `secrets.rs`.
+    #[serde(default)]
+    pub language_model: LanguageModelSettings,
 }
 
 impl Default for AppSettings {
@@ -40,6 +51,8 @@ impl Default for AppSettings {
             clock_format: default_clock_format(),
             audio_input_mode: default_audio_input_mode(),
             task_retention_days: default_task_retention_days(),
+            speech: SpeechSettings::default(),
+            language_model: LanguageModelSettings::default(),
         }
     }
 }
@@ -101,6 +114,8 @@ impl AppSettings {
                 "Tomorrow reminder time must use HH:MM format".into(),
             ));
         }
+        providers::validate_speech(&self.speech)?;
+        providers::validate_language_model(&self.language_model)?;
         Ok(())
     }
 }
@@ -155,5 +170,38 @@ mod tests {
             settings.quick_capture_shortcut,
             "CommandOrControl+Shift+Space"
         );
+    }
+
+    #[test]
+    fn defaults_detect_the_language_and_leave_the_language_model_unchosen() {
+        let settings = AppSettings::default();
+        assert_eq!(settings.speech.model, crate::speech::DEFAULT_MODEL);
+        assert_eq!(settings.speech.language, "auto");
+        assert!(settings.speech.terminology_language.is_none());
+        assert_eq!(settings.language_model.kind, providers::KIND_UNSET);
+        settings.validate().unwrap();
+    }
+
+    #[test]
+    fn a_file_written_before_providers_existed_still_loads() {
+        let settings: AppSettings = serde_json::from_str(
+            r#"{
+                "welcomeCompleted": true,
+                "quickCaptureShortcut": "CommandOrControl+Shift+Space",
+                "overdueRemindersEnabled": true,
+                "overdueIntervalMinutes": 15
+            }"#,
+        )
+        .unwrap();
+        settings.validate().unwrap();
+        assert_eq!(settings.speech.model, crate::speech::DEFAULT_MODEL);
+        assert_eq!(settings.language_model.kind, providers::KIND_UNSET);
+    }
+
+    #[test]
+    fn an_impossible_provider_is_refused_on_save() {
+        let mut settings = AppSettings::default();
+        settings.language_model.kind = "telepathy".into();
+        assert!(settings.validate().is_err());
     }
 }
