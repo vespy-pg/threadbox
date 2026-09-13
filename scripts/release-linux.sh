@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-build_memory="${THREADBOX_BUILD_MEMORY:-6g}"
-build_cpu_quota="${THREADBOX_BUILD_CPU_QUOTA:-400000}"
-build_jobs="${THREADBOX_BUILD_JOBS:-3}"
+build_memory="${THREADBOX_BUILD_MEMORY:-2g}"
+build_cpu_quota="${THREADBOX_BUILD_CPU_QUOTA:-100000}"
+build_jobs="${THREADBOX_BUILD_JOBS:-1}"
 cache_limit="${THREADBOX_BUILD_CACHE_LIMIT:-5GB}"
 
 docker build \
