@@ -14,6 +14,7 @@ mod microsoft;
 mod microsoft_graph;
 mod native_audio;
 mod native_messaging;
+mod provider_http;
 mod providers;
 mod screenshot;
 mod secrets;

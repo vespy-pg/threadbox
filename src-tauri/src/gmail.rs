@@ -642,9 +642,8 @@ impl Database {
             if let Some(token) = page_token.as_deref() {
                 request = request.query(&[("pageToken", token)]);
             }
-            let response = request
-                .send()
-                .map_err(|error| HistoryError::Other(error.into()))?;
+            let response =
+                crate::provider_http::send_idempotent(request).map_err(HistoryError::Other)?;
             if response.status() == StatusCode::NOT_FOUND {
                 return Err(HistoryError::Expired);
             }

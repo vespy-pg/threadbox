@@ -194,11 +194,13 @@ impl Database {
             .is_none();
         let mut messages = Vec::new();
         let delta_link = loop {
-            let page: GraphPage<GraphMessage> = graph(connection_id, client_id)?
-                .get(url)
-                .send()?
-                .error_for_status()?
-                .json()?;
+            let response =
+                crate::provider_http::send_idempotent(graph(connection_id, client_id)?.get(url))?;
+            if delta_cursor_expired(response.status(), full_sync) {
+                self.clear_integration_sync_cursor(connection_id, CURSOR_KIND)?;
+                return self.sync_microsoft_mail_headers(connection_id, client_id);
+            }
+            let page: GraphPage<GraphMessage> = response.error_for_status()?.json()?;
             messages.extend(
                 page.value
                     .into_iter()
@@ -362,6 +364,10 @@ impl Database {
     }
 }
 
+fn delta_cursor_expired(status: reqwest::StatusCode, full_sync: bool) -> bool {
+    status == reqwest::StatusCode::GONE && !full_sync
+}
+
 fn mail_page(response: GraphPage<GraphMessage>) -> MailPage {
     MailPage {
         messages: response
@@ -494,5 +500,15 @@ mod tests {
             payload["toRecipients"][0]["emailAddress"]["address"],
             "person@example.com"
         );
+    }
+
+    #[test]
+    fn an_expired_delta_cursor_restarts_only_incremental_sync() {
+        assert!(delta_cursor_expired(reqwest::StatusCode::GONE, false));
+        assert!(!delta_cursor_expired(reqwest::StatusCode::GONE, true));
+        assert!(!delta_cursor_expired(
+            reqwest::StatusCode::UNAUTHORIZED,
+            false
+        ));
     }
 }

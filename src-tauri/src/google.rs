@@ -186,7 +186,7 @@ pub fn access_token(connection_id: &str, client_id: &str) -> AppResult<String> {
         AppError::InvalidInput("The Google connection has no stored credential".into())
     })?;
     let mut token: GoogleToken = serde_json::from_str(&encoded)?;
-    if token.expires_at > Utc::now().timestamp() + 60 {
+    if token_is_fresh(token.expires_at, Utc::now().timestamp()) {
         return Ok(token.access_token);
     }
     if token.refresh_token.is_empty() {
@@ -211,6 +211,10 @@ pub fn access_token(connection_id: &str, client_id: &str) -> AppResult<String> {
     }
     store_token(connection_id, &token)?;
     Ok(token.access_token)
+}
+
+fn token_is_fresh(expires_at: i64, now: i64) -> bool {
+    expires_at > now + 60
 }
 
 fn profile(access_token: &str) -> AppResult<GoogleProfile> {
@@ -280,5 +284,12 @@ mod tests {
         };
         assert!(token.grants(&["openid", SCOPE_GMAIL_SEND]));
         assert!(!token.grants(&["openid", SCOPE_GMAIL_READONLY]));
+    }
+
+    #[test]
+    fn refreshes_before_a_google_token_expires() {
+        assert!(token_is_fresh(1_061, 1_000));
+        assert!(!token_is_fresh(1_060, 1_000));
+        assert!(!token_is_fresh(999, 1_000));
     }
 }

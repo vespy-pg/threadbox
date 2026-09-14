@@ -174,7 +174,7 @@ pub fn access_token(connection_id: &str, client_id: &str) -> AppResult<String> {
         AppError::InvalidInput("The Microsoft connection has no stored credential".into())
     })?;
     let mut token: MicrosoftToken = serde_json::from_str(&encoded)?;
-    if token.expires_at > Utc::now().timestamp() + 60 {
+    if token_is_fresh(token.expires_at, Utc::now().timestamp()) {
         return Ok(token.access_token);
     }
     let scopes = token.scope.clone();
@@ -199,6 +199,10 @@ pub fn access_token(connection_id: &str, client_id: &str) -> AppResult<String> {
     }
     secrets::store(&account, &serde_json::to_string(&token)?)?;
     Ok(token.access_token)
+}
+
+fn token_is_fresh(expires_at: i64, now: i64) -> bool {
+    expires_at > now + 60
 }
 
 fn profile(access_token: &str) -> AppResult<MicrosoftProfile> {
@@ -258,5 +262,12 @@ mod tests {
         };
         assert!(token.grants(&["OPENID", "mail.send"]));
         assert!(!token.grants(&["Mail.Read"]));
+    }
+
+    #[test]
+    fn refreshes_before_a_microsoft_token_expires() {
+        assert!(token_is_fresh(1_061, 1_000));
+        assert!(!token_is_fresh(1_060, 1_000));
+        assert!(!token_is_fresh(999, 1_000));
     }
 }

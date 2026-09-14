@@ -477,6 +477,19 @@ impl Database {
         Ok(())
     }
 
+    pub fn clear_integration_sync_cursor(
+        &self,
+        connection_id: &str,
+        resource_kind: &str,
+    ) -> AppResult<()> {
+        self.integration_snapshot(connection_id)?;
+        self.connect()?.execute(
+            "DELETE FROM sync_cursors WHERE connection_id=?1 AND resource_kind=?2",
+            params![connection_id, resource_kind],
+        )?;
+        Ok(())
+    }
+
     pub fn create_approved_external_action(
         &self,
         input: &ExternalActionInput,

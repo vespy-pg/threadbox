@@ -290,6 +290,9 @@ audio or transcript data sent to configured cloud providers. Receipts contain me
 counts when known, never a second copy of the content, and are visible per organisation in
 Integrations. Backup version 5 now includes a consistent full database snapshot and media; restore
 validates it in staging and rolls back the database and media together if replacement fails.
+Idempotent Gmail history and Microsoft delta reads retry bounded transient network, 429, 502, 503
+and 504 failures; `Retry-After` is capped, expired tokens refresh before use, Gmail history expiry
+and Microsoft 410 delta expiry restart a full bounded sync without advancing a partial cursor.
 
 - Complete Google OAuth verification work required by the selected Gmail scopes.
 - Add provider rate-limit, token-expiry, offline and partial-sync recovery tests.
