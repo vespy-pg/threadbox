@@ -455,6 +455,9 @@ blockquote { margin: 8px 0 0; padding-left: 12px; border-left: 2px solid #a9c8b9
 .audio-input-select.compact select { height: 36px; }
 .setting-note { margin-top: 9px; font-size: 10px !important; }
 .setting-confirmation { display: flex; align-items: center; gap: 7px; margin: 10px 0 0 !important; color: var(--green-dark) !important; font-weight: 700; }
+.setting-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.setting-actions button { display: inline-flex; align-items: center; gap: 7px; }
+.setting-update-notes { max-height: 96px; margin-top: 10px; overflow: auto; white-space: pre-wrap; }
 .pagination { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; min-height: 46px; padding: 7px 18px; border-top: 1px solid var(--line); background: #f7f8f5; }
 .pagination button { min-width: 72px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; color: var(--green-dark); background: white; cursor: pointer; font-size: 10px; font-weight: 700; }
 .pagination button:disabled { opacity: .4; cursor: default; }

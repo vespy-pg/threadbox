@@ -269,6 +269,11 @@ send-only and combined end-to-end tests.
 
 ### Milestone 5: Windows feature parity
 
+Implementation status: platform adapters, native CI, signed-update controls and the reproducible
+desktop release workflow are complete. Publishing requires the release secrets and repository
+variables listed in `windows-release.md`; hardware and real-provider acceptance still requires a
+clean Windows machine.
+
 - Complete WASAPI microphone and system-loopback recording.
 - Complete Windows screenshot, credentials and desktop integration adapters.
 - Exercise OAuth callbacks, local and cloud transcription, mail, calendar and free-time search on a
@@ -312,3 +317,5 @@ adding inactive UI or implementation work to this release.
 - [OpenAI speech-to-text](https://developers.openai.com/api/docs/guides/speech-to-text)
 - [Tauri Windows prerequisites](https://v2.tauri.app/start/prerequisites/)
 - [Tauri Windows installers](https://v2.tauri.app/distribute/windows-installer/)
+- [Tauri updater](https://v2.tauri.app/plugin/updater/)
+- [Tauri Windows code signing](https://v2.tauri.app/distribute/sign/windows/)

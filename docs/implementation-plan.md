@@ -152,7 +152,7 @@ production interface build. The graphical application has not been launched.
   project assignment, recording metadata and soft deletion. A project move is recorded in
   `meeting_project_history`; the content-addressed recording remains attached to the meeting, so no
   media copy or path rewrite is required.
-- Meeting recording opens the default microphone and the PulseAudio or PipeWire monitor
+- Meeting recording opens the default microphone and the operating system's system-audio endpoint
   simultaneously. Both inputs are downsampled to 16 kHz and written into one 16-bit stereo WAV with
   the microphone on the left and system audio on the right. Playback accepts both the earlier mono
   voice notes and the new stereo meeting source.

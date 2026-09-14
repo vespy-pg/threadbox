@@ -1,0 +1,87 @@
+name: Build desktop release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag, for example v0.2.0
+        required: true
+        type: string
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            args: --config src-tauri/tauri.release.conf.json
+          - os: windows-latest
+            args: --bundles nsis --config src-tauri/tauri.release.conf.json
+    runs-on: ${{ matrix.os }}
+    env:
+      THREADBOX_RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      THREADBOX_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
+      THREADBOX_WINDOWS_TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      VITE_UPDATER_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libasound2-dev libdbus-1-dev cmake clang libclang-dev file libfuse2 xdg-utils
+      - run: npm ci
+      - run: node scripts/verify-release-version.mjs
+      - run: npm test
+      - name: Import Windows code-signing certificate
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) {
+            throw "WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD are required"
+          }
+          $certificatePath = Join-Path $env:RUNNER_TEMP "threadbox-code-signing.pfx"
+          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $password = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText
+          $certificate = Import-PfxCertificate -FilePath $certificatePath -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          "THREADBOX_WINDOWS_CERTIFICATE_THUMBPRINT=$($certificate.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - run: node scripts/create-release-config.mjs
+      - name: Build Firefox extension
+        if: runner.os == 'Linux'
+        run: npm run extension:build
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ env.THREADBOX_RELEASE_TAG }}
+          releaseName: Threadbox ${{ env.THREADBOX_RELEASE_TAG }}
+          releaseBody: Signed desktop installers and verified in-app updates.
+          releaseDraft: true
+          prerelease: true
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
+          args: ${{ matrix.args }}
+      - name: Remove imported Windows certificate
+        if: always() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if ($env:THREADBOX_WINDOWS_CERTIFICATE_THUMBPRINT) {
+            Remove-Item "Cert:\CurrentUser\My\$env:THREADBOX_WINDOWS_CERTIFICATE_THUMBPRINT" -ErrorAction SilentlyContinue
+          }
+          Remove-Item (Join-Path $env:RUNNER_TEMP "threadbox-code-signing.pfx") -ErrorAction SilentlyContinue

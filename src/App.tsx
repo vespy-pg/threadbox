@@ -36,6 +36,7 @@ import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
 import { save } from "@tauri-apps/plugin-dialog";
 import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import { type RecorderResult, WavRecorder } from "./audio";
 import { FileAttachmentList, fileToDataUrl, filesToAttachments } from "./attachments";
 import { api } from "./api";
@@ -67,6 +68,7 @@ const viewTitles: Record<TaskView, string> = {
 };
 
 const inTauri = (): boolean => "__TAURI_INTERNALS__" in window;
+const releaseUpdatesEnabled = import.meta.env.VITE_UPDATER_ENABLED === "true";
 const meetingRecordingShortcut = "CommandOrControl+Shift+M";
 const defaultSettings: AppSettings = { welcomeCompleted: false, startAtLogin: true, quickCaptureShortcut: "CommandOrControl+Shift+Space", overdueRemindersEnabled: true, overdueIntervalMinutes: 15, stickyRemindersEnabled: true, tomorrowReminderTime: "08:30", clockFormat: "24h", audioInputMode: "microphone", taskRetentionDays: 7, googleOauthClientId: "", microsoftOauthClientId: "", speech: { provider: "local", model: "small", language: "auto", terminologyLanguage: null, cloudModel: "whisper-1" }, languageModel: { kind: "unset", local: { baseUrl: "http://127.0.0.1:11434/v1", model: "", managed: false, command: "", idleTimeoutMinutes: 10 }, api: { provider: "", baseUrl: "", model: "" }, agent: { command: "", arguments: [] } } };
 const pageSize = 20;
@@ -1062,7 +1064,7 @@ function SettingsDialog({ settings, onSettings, onClose, onError }: { settings: 
 
   return <div className="modal-backdrop"><div className="settings-dialog"><div className="dialog-header"><div><p className="eyebrow">Threadbox</p><h2>Settings</h2></div><button className="icon-button" onClick={onClose}><X /></button></div>
     <section className="settings-section"><h3>Startup</h3><p>Keep global capture and reminders available after you log in.</p><label className="toggle-row"><span>Start Threadbox when I log in</span><input type="checkbox" checked={settings.startAtLogin} onChange={(event) => changeSettings({ startAtLogin: event.target.checked })} /></label><p className="setting-note">Automatic launches stay hidden in the system tray. Opening Threadbox yourself still shows the main window.</p></section>
-    <section className="settings-section"><h3>Speech recognition</h3><p>Use local recognition when audio must stay on this computer, or choose OpenAI cloud for an individual meeting. Local model size trades speed for accuracy.</p><SpeechProviderSettings settings={settings.speech} onChange={(patch) => void changeSettings({ speech: { ...settings.speech, ...patch } })} onError={onError} /><label className="setting-select"><span>Default audio input</span><select value={settings.audioInputMode} onChange={(event) => changeSettings({ audioInputMode: event.target.value as AudioInputMode })}><option value="microphone">Microphone</option><option value="system">System audio</option></select></label><p className="setting-note">System audio records the default PipeWire or PulseAudio monitor, including calls and other computer sounds.</p></section>
+    <section className="settings-section"><h3>Speech recognition</h3><p>Use local recognition when audio must stay on this computer, or choose OpenAI cloud for an individual meeting. Local model size trades speed for accuracy.</p><SpeechProviderSettings settings={settings.speech} onChange={(patch) => void changeSettings({ speech: { ...settings.speech, ...patch } })} onError={onError} /><label className="setting-select"><span>Default audio input</span><select value={settings.audioInputMode} onChange={(event) => changeSettings({ audioInputMode: event.target.value as AudioInputMode })}><option value="microphone">Microphone</option><option value="system">System audio</option></select></label><p className="setting-note">System audio records calls and other sound played by the computer when the operating system supports it.</p></section>
     <section className="settings-section"><h3>Language model for analysis</h3><p>Meeting notes, decisions and action items are written by a language model. Which one is your choice, and it can change at any time without losing anything already written.</p><LanguageModelProviderSettings settings={settings.languageModel} onChange={(patch) => void changeSettings({ languageModel: { ...settings.languageModel, ...patch } })} onError={onError} /></section>
     <section className="settings-section"><h3>Overdue reminders</h3><p>Repeat a clearly audible notification until the task is completed or reminders are disabled.</p><label className="toggle-row"><span>Repeat overdue reminders</span><input type="checkbox" checked={settings.overdueRemindersEnabled} onChange={(event) => changeSettings({ overdueRemindersEnabled: event.target.checked })} /></label><label className="toggle-row"><span>Show a sticky reminder above other apps</span><input type="checkbox" checked={settings.stickyRemindersEnabled} disabled={!settings.overdueRemindersEnabled} onChange={(event) => changeSettings({ stickyRemindersEnabled: event.target.checked })} /></label><label className="setting-select"><span>Repeat every</span><select value={settings.overdueIntervalMinutes} disabled={!settings.overdueRemindersEnabled} onChange={(event) => changeSettings({ overdueIntervalMinutes: Number(event.target.value) })}>{[5, 10, 15, 30, 60].map((minutes) => <option value={minutes} key={minutes}>{minutes} minutes</option>)}</select></label><button className="secondary-button test-reminder" onClick={() => void api.testReminderSound().catch((reason) => onError(String(reason)))}>Test reminder sound</button></section>
     <section className="settings-section"><h3>Reminder presets</h3><p>Tomorrow uses this local time when scheduling or snoozing a reminder.</p><label className="setting-select"><span>Tomorrow reminder time</span><input type="time" value={settings.tomorrowReminderTime} onChange={(event) => changeSettings({ tomorrowReminderTime: event.target.value })} /></label></section>
@@ -1070,8 +1072,50 @@ function SettingsDialog({ settings, onSettings, onClose, onError }: { settings: 
     <section className="settings-section"><h3>Quick capture</h3><p>The shortcut brings Threadbox above other applications and opens a new task.</p><label className="setting-select"><span>Keyboard shortcut</span><select value={settings.quickCaptureShortcut} onChange={(event) => changeSettings({ quickCaptureShortcut: event.target.value })}><option value="CommandOrControl+Shift+Space">Ctrl Shift Space</option><option value="CommandOrControl+Alt+Space">Ctrl Alt Space</option><option value="CommandOrControl+Shift+A">Ctrl Shift A</option><option value="CommandOrControl+Alt+T">Ctrl Alt T</option></select></label></section>
     <section className="settings-section"><h3>Date and time</h3><p>Choose how hours are displayed in task dates and the clock picker.</p><label className="setting-select"><span>Clock format</span><select value={settings.clockFormat} onChange={(event) => changeSettings({ clockFormat: event.target.value as AppSettings["clockFormat"] })}><option value="24h">24-hour clock</option><option value="12h">12-hour clock</option></select></label></section>
     <section className="settings-section"><h3>Welcome guide</h3><p>Show the short introduction again after this Settings window is closed.</p><button className="secondary-button" disabled={!settings.welcomeCompleted} onClick={() => void changeSettings({ welcomeCompleted: false })}>Show welcome guide again</button>{!settings.welcomeCompleted && <p className="setting-confirmation"><Check size={14} />Ready. Close Settings to open the welcome guide.</p>}</section>
+    {releaseUpdatesEnabled && <ApplicationUpdates onError={onError} />}
     <section className="settings-section"><h3>Backup</h3><p>Export tasks, message references and attachments to a portable JSON file.</p><button className="secondary-button" onClick={backup}>Export backup</button></section>
   </div></div>;
+}
+
+function ApplicationUpdates({ onError }: { onError: (error: string) => void }) {
+  const [pending, setPending] = useState<Update | null>(null);
+  const [status, setStatus] = useState<"idle" | "checking" | "ready" | "installing" | "current" | "installed">("idle");
+
+  async function checkNow() {
+    setStatus("checking");
+    try {
+      const update = await check({ timeout: 30_000 });
+      setPending(update);
+      setStatus(update ? "ready" : "current");
+    } catch (reason) {
+      setStatus("idle");
+      onError(`Could not check for updates: ${String(reason)}`);
+    }
+  }
+
+  async function install() {
+    if (!pending) return;
+    setStatus("installing");
+    try {
+      await pending.downloadAndInstall();
+      setStatus("installed");
+    } catch (reason) {
+      setStatus("ready");
+      onError(`Could not install the update: ${String(reason)}`);
+    }
+  }
+
+  return <section className="settings-section">
+    <h3>Application updates</h3>
+    <p>Threadbox verifies every downloaded release before installing it.</p>
+    <div className="setting-actions">
+      <button className="secondary-button" disabled={status === "checking" || status === "installing"} onClick={() => void checkNow()}>{status === "checking" ? "Checking..." : "Check for updates"}</button>
+      {pending && status !== "installed" && <button className="primary-button" disabled={status === "installing"} onClick={() => void install()}><Download size={15} />{status === "installing" ? "Installing..." : `Install ${pending.version}`}</button>}
+    </div>
+    {status === "current" && <p className="setting-confirmation"><Check size={14} />Threadbox is up to date.</p>}
+    {status === "ready" && pending?.body && <p className="setting-update-notes">{pending.body}</p>}
+    {status === "installed" && <p className="setting-confirmation"><Check size={14} />Update installed. Restart Threadbox to finish.</p>}
+  </section>;
 }
 
 function ReminderCenter({ tasks, workspace, tomorrowReminderTime, onClose, onOpen, onDone, onSnooze, onSnoozeAll }: { tasks: Task[]; workspace: Workspace; tomorrowReminderTime: string; onClose: () => void; onOpen: (task: Task) => void; onDone: (task: Task) => Promise<void>; onSnooze: (task: Task, preset: ReminderPreset) => Promise<void>; onSnoozeAll: (tasks: Task[], preset: ReminderPreset) => Promise<void> }) {

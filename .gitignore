@@ -12,3 +12,4 @@ src-tauri/gen/
 *.deb
 models/
 release/
+src-tauri/tauri.release.conf.json
