@@ -408,6 +408,20 @@ export interface IntegrationSnapshot {
   capabilities: IntegrationCapability[];
 }
 
+export interface PrivacyReceipt {
+  id: string;
+  organizationId: string;
+  projectId: string | null;
+  connectionId: string | null;
+  provider: string;
+  operation: string;
+  reason: string;
+  dataCategories: string[];
+  destination: string;
+  byteCount: number | null;
+  createdAt: string;
+}
+
 export interface ExternalCalendar {
   id: string;
   summary: string;

@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { readImage } from "@tauri-apps/plugin-clipboard-manager";
 import { setMediaRoot } from "./media";
-import type { AppSettings, ApiProvider, AvailableSlot, CalendarEventDraft, ExternalCalendar, ExternalCalendarEvent, ExternalMailLabel, ExternalMailMessage, FindTimeInput, IntegrationCapabilityId, IntegrationSnapshot, LanguageModelStatus, MailActionResult, MailDiagnostic, MailDraftInput, MailListInput, MailPage, MailSyncResult, Meeting, MeetingAnalysis, MeetingInput, MeetingTranscript, ModelStatus, Organization, OrganizationMember, Person, ProcessingJob, Project, ProjectDocument, ProjectDocumentInput, ProjectLanguage, ProjectMailItem, ProviderProbe, SpeechCloudStatus, SpeechModelId, SpeechProvider, StandardMailConnectionInput, Task, TaskInput, TaskPatch, VocabularyCandidate, VocabularySet, VocabularySetInput, VocabularyTerm, VocabularyTermInput } from "./types";
+import type { AppSettings, ApiProvider, AvailableSlot, CalendarEventDraft, ExternalCalendar, ExternalCalendarEvent, ExternalMailLabel, ExternalMailMessage, FindTimeInput, IntegrationCapabilityId, IntegrationSnapshot, LanguageModelStatus, MailActionResult, MailDiagnostic, MailDraftInput, MailListInput, MailPage, MailSyncResult, Meeting, MeetingAnalysis, MeetingInput, MeetingTranscript, ModelStatus, Organization, OrganizationMember, Person, PrivacyReceipt, ProcessingJob, Project, ProjectDocument, ProjectDocumentInput, ProjectLanguage, ProjectMailItem, ProviderProbe, SpeechCloudStatus, SpeechModelId, SpeechProvider, StandardMailConnectionInput, Task, TaskInput, TaskPatch, VocabularyCandidate, VocabularySet, VocabularySetInput, VocabularyTerm, VocabularyTermInput } from "./types";
 
 const inTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 
@@ -399,6 +399,10 @@ export const api = {
 
   async listIntegrationConnections(organizationId: string): Promise<IntegrationSnapshot[]> {
     return inTauri() ? invoke<IntegrationSnapshot[]>("list_integration_connections", { organizationId }) : [];
+  },
+
+  async listPrivacyReceipts(organizationId: string): Promise<PrivacyReceipt[]> {
+    return inTauri() ? invoke<PrivacyReceipt[]>("list_privacy_receipts", { organizationId }) : [];
   },
 
   async connectGoogle(organizationId: string, connectionId?: string): Promise<IntegrationSnapshot> {

@@ -39,7 +39,7 @@ use google_calendar::{
     AvailableSlot, CalendarEventDraft, ExternalCalendar, ExternalCalendarEvent, FindTimeInput,
 };
 use integrations::{
-    ExternalActionInput, IntegrationConnectionInput, IntegrationSnapshot,
+    ExternalActionInput, IntegrationConnectionInput, IntegrationSnapshot, PrivacyReceipt,
     CAPABILITY_CALENDAR_FREE_BUSY, CAPABILITY_CALENDAR_READ, CAPABILITY_CALENDAR_WRITE,
     CAPABILITY_MAIL_COMPOSE, CAPABILITY_MAIL_CONTENT_READ, CAPABILITY_MAIL_METADATA_READ,
     CAPABILITY_MAIL_SEND,
@@ -866,6 +866,14 @@ fn list_integration_connections(
     organization_id: String,
 ) -> AppResult<Vec<IntegrationSnapshot>> {
     database.integration_snapshots(&organization_id)
+}
+
+#[tauri::command]
+fn list_privacy_receipts(
+    database: tauri::State<'_, Database>,
+    organization_id: String,
+) -> AppResult<Vec<PrivacyReceipt>> {
+    database.privacy_receipts(&organization_id, 100)
 }
 
 #[tauri::command]
@@ -1721,6 +1729,7 @@ pub fn run() {
             get_settings,
             update_settings,
             list_integration_connections,
+            list_privacy_receipts,
             connect_google,
             grant_google_capability,
             revoke_google_capability,

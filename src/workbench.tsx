@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight, BookOpen, BriefcaseBusiness, CalendarDays, Check
 
 import { api } from "./api";
 import { ProjectDetail, projectPath, type Workspace } from "./projects";
-import type { AppSettings, AvailableSlot, CalendarEventDraft, ExternalCalendar, ExternalCalendarEvent, ExternalMailMessage, FindTimeInput, IntegrationCapabilityId, IntegrationSnapshot, LanguageModelStatus, MailDraftInput, Meeting, MeetingAnalysis, MeetingTranscript, Organization, OrganizationMember, Person, ProcessingJob, Project, ProjectMailItem, SpeechCloudStatus, SpeechProvider, Task, TranscriptSegment, VocabularyCandidate, VocabularySet, VocabularyTerm } from "./types";
+import type { AppSettings, AvailableSlot, CalendarEventDraft, ExternalCalendar, ExternalCalendarEvent, ExternalMailMessage, FindTimeInput, IntegrationCapabilityId, IntegrationSnapshot, LanguageModelStatus, MailDraftInput, Meeting, MeetingAnalysis, MeetingTranscript, Organization, OrganizationMember, Person, PrivacyReceipt, ProcessingJob, Project, ProjectMailItem, SpeechCloudStatus, SpeechProvider, Task, TranscriptSegment, VocabularyCandidate, VocabularySet, VocabularyTerm } from "./types";
 
 export type WorkbenchArea = "organization-overview" | "projects" | "people" | "integrations" | "project-overview" | "threads" | "meetings" | "documents" | "communication" | "vocabulary";
 
@@ -692,14 +692,16 @@ export function IntegrationsWorkspace({ organization, onError }: { organization:
   const [clientId, setClientId] = useState("");
   const [microsoftClientId, setMicrosoftClientId] = useState("");
   const [connections, setConnections] = useState<IntegrationSnapshot[]>([]);
+  const [privacyReceipts, setPrivacyReceipts] = useState<PrivacyReceipt[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const load = useCallback(async () => {
     try {
-      const [nextSettings, nextConnections] = await Promise.all([api.getSettings(), api.listIntegrationConnections(organization.id)]);
+      const [nextSettings, nextConnections, nextReceipts] = await Promise.all([api.getSettings(), api.listIntegrationConnections(organization.id), api.listPrivacyReceipts(organization.id)]);
       setSettings(nextSettings);
       setClientId(nextSettings.googleOauthClientId);
       setMicrosoftClientId(nextSettings.microsoftOauthClientId);
       setConnections(nextConnections);
+      setPrivacyReceipts(nextReceipts);
     } catch (reason) { onError(String(reason)); }
   }, [onError, organization.id]);
   useEffect(() => { void load(); }, [load]);
@@ -769,6 +771,9 @@ export function IntegrationsWorkspace({ organization, onError }: { organization:
       <p className="integration-permission-note">Microsoft personal and work accounts use the same desktop flow. Threadbox requests only delegated permissions and keeps refresh tokens in the operating system credential store.</p>
     </section>
     <StandardMailSetup organization={organization} connections={connections.filter((item) => item.connection.provider === "standard_mail")} onConnected={load} onError={onError} />
+    <section className="surface-card privacy-receipts"><div className="surface-card-heading"><div><p className="eyebrow">Privacy</p><h2>Data leaving this device</h2><p>An immutable summary is added when Threadbox starts an approved external write or cloud operation. Message content is not duplicated here.</p></div><span className="status-pill ready">{privacyReceipts.length} recorded</span></div>
+      {privacyReceipts.length === 0 ? <p className="integration-permission-note">No outbound data has been recorded for this organisation.</p> : <div className="privacy-receipt-list">{privacyReceipts.map((receipt) => <article key={receipt.id}><div><strong>{receipt.operation}</strong><small>{receipt.provider} - {receipt.destination}</small></div><div><span>{receipt.dataCategories.join(", ")}</span><small>{receipt.reason} - {formatMeetingDate(receipt.createdAt)}{receipt.byteCount === null ? "" : ` - ${receipt.byteCount.toLocaleString()} bytes`}</small></div></article>)}</div>}
+    </section>
     <div className="integration-grid">{integrations.map(({ name, kind, text, icon: Icon, status }) => <section className="integration-card" key={name}><div className="integration-logo"><Icon size={21} /></div><div><p className="eyebrow">{kind}</p><h2>{name}</h2><p>{text}</p></div><span className="status-pill">{status}</span></section>)}</div>
   </WorkspacePage>;
 }

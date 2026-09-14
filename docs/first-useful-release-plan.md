@@ -285,6 +285,11 @@ and platform-specific failures are stated without Linux terminology.
 
 ### Milestone 6: release hardening
 
+Implementation status: privacy receipts now record approved mail and calendar writes plus meeting
+audio or transcript data sent to configured cloud providers. Receipts contain metadata and byte
+counts when known, never a second copy of the content, and are visible per organisation in
+Integrations.
+
 - Complete Google OAuth verification work required by the selected Gmail scopes.
 - Add provider rate-limit, token-expiry, offline and partial-sync recovery tests.
 - Add privacy receipts showing what left the device and why.

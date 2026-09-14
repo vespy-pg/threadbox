@@ -94,6 +94,36 @@ pub struct ExternalAction {
     pub completed_at: Option<String>,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrivacyReceiptInput {
+    pub organization_id: String,
+    pub project_id: Option<String>,
+    pub connection_id: Option<String>,
+    pub provider: String,
+    pub operation: String,
+    pub reason: String,
+    pub data_categories: Vec<String>,
+    pub destination: String,
+    pub byte_count: Option<i64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrivacyReceipt {
+    pub id: String,
+    pub organization_id: String,
+    pub project_id: Option<String>,
+    pub connection_id: Option<String>,
+    pub provider: String,
+    pub operation: String,
+    pub reason: String,
+    pub data_categories: Vec<String>,
+    pub destination: String,
+    pub byte_count: Option<i64>,
+    pub created_at: String,
+}
+
 pub(crate) fn migrate_schema(connection: &Connection) -> AppResult<()> {
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS integration_connections (
@@ -171,6 +201,21 @@ pub(crate) fn migrate_schema(connection: &Connection) -> AppResult<()> {
             finished_at TEXT,
             UNIQUE(action_id, attempt_number)
         );
+        CREATE TABLE IF NOT EXISTS privacy_receipts (
+            id TEXT PRIMARY KEY,
+            organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+            project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+            connection_id TEXT REFERENCES integration_connections(id) ON DELETE SET NULL,
+            provider TEXT NOT NULL,
+            operation TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            data_categories_json TEXT NOT NULL,
+            destination TEXT NOT NULL,
+            byte_count INTEGER,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_privacy_receipts_organization
+            ON privacy_receipts(organization_id, created_at DESC);
         CREATE TRIGGER IF NOT EXISTS external_actions_connection_guard
         BEFORE INSERT ON external_actions
         WHEN NOT EXISTS (
@@ -492,8 +537,160 @@ impl Database {
              VALUES (?1, ?2, ?3, 'started', ?4)",
             params![Uuid::new_v4().to_string(), action_id, attempt, now],
         )?;
+        let (organization_id, project_id, connection_id, provider, destination, operation, payload):
+            (String, Option<String>, String, String, String, String, String) = transaction
+            .query_row(
+                "SELECT a.organization_id, a.project_id, a.connection_id, c.provider,
+                        c.account_identifier, a.kind, a.approved_payload_json
+                 FROM external_actions a
+                 JOIN integration_connections c ON c.id = a.connection_id
+                 WHERE a.id = ?1",
+                [action_id],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                    ))
+                },
+            )?;
+        let data_category = if operation.starts_with("mail.") {
+            "reviewed email content"
+        } else if operation.starts_with("calendar.") {
+            "reviewed calendar event"
+        } else {
+            "reviewed external action"
+        };
+        transaction.execute(
+            "INSERT INTO privacy_receipts
+                (id, organization_id, project_id, connection_id, provider, operation, reason,
+                 data_categories_json, destination, byte_count, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'User approved this external action', ?7, ?8, ?9, ?10)",
+            params![
+                Uuid::new_v4().to_string(),
+                organization_id,
+                project_id,
+                connection_id,
+                provider,
+                operation,
+                serde_json::to_string(&vec![data_category])?,
+                destination,
+                payload.len() as i64,
+                now,
+            ],
+        )?;
         transaction.commit()?;
         Ok(attempt)
+    }
+
+    pub fn record_privacy_receipt(&self, input: &PrivacyReceiptInput) -> AppResult<PrivacyReceipt> {
+        self.get_organization(&input.organization_id)?;
+        let receipt = PrivacyReceipt {
+            id: Uuid::new_v4().to_string(),
+            organization_id: input.organization_id.clone(),
+            project_id: input.project_id.clone(),
+            connection_id: input.connection_id.clone(),
+            provider: input.provider.trim().to_string(),
+            operation: input.operation.trim().to_string(),
+            reason: input.reason.trim().to_string(),
+            data_categories: input.data_categories.clone(),
+            destination: input.destination.trim().to_string(),
+            byte_count: input.byte_count,
+            created_at: Utc::now().to_rfc3339(),
+        };
+        if receipt.provider.is_empty() || receipt.operation.is_empty() || receipt.reason.is_empty()
+        {
+            return Err(AppError::InvalidInput(
+                "A privacy receipt needs a provider, operation and reason".into(),
+            ));
+        }
+        self.connect()?.execute(
+            "INSERT INTO privacy_receipts
+                (id, organization_id, project_id, connection_id, provider, operation, reason,
+                 data_categories_json, destination, byte_count, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                receipt.id,
+                receipt.organization_id,
+                receipt.project_id,
+                receipt.connection_id,
+                receipt.provider,
+                receipt.operation,
+                receipt.reason,
+                serde_json::to_string(&receipt.data_categories)?,
+                receipt.destination,
+                receipt.byte_count,
+                receipt.created_at
+            ],
+        )?;
+        Ok(receipt)
+    }
+
+    pub fn privacy_receipts(
+        &self,
+        organization_id: &str,
+        limit: i64,
+    ) -> AppResult<Vec<PrivacyReceipt>> {
+        self.get_organization(organization_id)?;
+        let connection = self.connect()?;
+        let mut statement = connection.prepare(
+            "SELECT id, organization_id, project_id, connection_id, provider, operation, reason,
+                    data_categories_json, destination, byte_count, created_at
+             FROM privacy_receipts WHERE organization_id = ?1
+             ORDER BY created_at DESC LIMIT ?2",
+        )?;
+        let rows = statement
+            .query_map(params![organization_id, limit.clamp(1, 200)], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, Option<i64>>(9)?,
+                    row.get::<_, String>(10)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.into_iter()
+            .map(
+                |(
+                    id,
+                    organization_id,
+                    project_id,
+                    connection_id,
+                    provider,
+                    operation,
+                    reason,
+                    data_categories_json,
+                    destination,
+                    byte_count,
+                    created_at,
+                )| {
+                    Ok(PrivacyReceipt {
+                        id,
+                        organization_id,
+                        project_id,
+                        connection_id,
+                        provider,
+                        operation,
+                        reason,
+                        data_categories: serde_json::from_str(&data_categories_json)?,
+                        destination,
+                        byte_count,
+                        created_at,
+                    })
+                },
+            )
+            .collect()
     }
 
     pub fn finish_external_action_attempt(
@@ -746,6 +943,7 @@ mod tests {
             "sync_cursors",
             "external_actions",
             "execution_attempts",
+            "privacy_receipts",
         ] {
             let exists: bool = connection
                 .query_row(
@@ -861,5 +1059,16 @@ mod tests {
         assert_eq!(action_status, "sent");
         assert_eq!(attempt_status, "succeeded");
         assert_eq!(receipt, "google-event-1");
+        let privacy_receipts = database
+            .privacy_receipts(&action.organization_id, 10)
+            .unwrap();
+        assert_eq!(privacy_receipts.len(), 1);
+        assert_eq!(privacy_receipts[0].provider, "google");
+        assert_eq!(privacy_receipts[0].operation, "calendar.event.create");
+        assert_eq!(
+            privacy_receipts[0].data_categories,
+            vec!["reviewed calendar event"]
+        );
+        assert!(privacy_receipts[0].byte_count.unwrap() > 0);
     }
 }

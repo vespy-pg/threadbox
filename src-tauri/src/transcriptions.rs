@@ -15,6 +15,7 @@ use crate::{
     cloud_speech,
     database::Database,
     error::{AppError, AppResult},
+    integrations::PrivacyReceiptInput,
     media,
     providers::{SPEECH_LOCAL, SPEECH_OPENAI},
     secrets,
@@ -402,6 +403,20 @@ impl Database {
                             .into(),
                     )
                     })?;
+                if let Some(project_id) = meeting.project_id.as_deref() {
+                    let project = self.get_project(project_id)?;
+                    self.record_privacy_receipt(&PrivacyReceiptInput {
+                        organization_id: project.organization_id,
+                        project_id: Some(project_id.to_string()),
+                        connection_id: None,
+                        provider: "openai".into(),
+                        operation: "speech.transcribe".into(),
+                        reason: "User selected cloud transcription for this meeting".into(),
+                        data_categories: vec!["meeting audio".into(), "vocabulary hints".into()],
+                        destination: "api.openai.com".into(),
+                        byte_count: None,
+                    })?;
+                }
                 (
                     cloud_speech::transcribe_openai_wav_channel(
                         &bytes,

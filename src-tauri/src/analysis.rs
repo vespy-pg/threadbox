@@ -10,6 +10,7 @@ use uuid::Uuid;
 use crate::{
     database::{Database, TaskInput},
     error::{AppError, AppResult},
+    integrations::PrivacyReceiptInput,
     providers::{self, LanguageModelSettings},
     transcriptions::{MeetingTranscript, ProcessingJob},
 };
@@ -256,6 +257,31 @@ impl Database {
         let glossary = self.analysis_glossary(meeting.project_id.as_deref())?;
         let system_prompt = analysis_system_prompt(&self_name);
         let user_prompt = analysis_user_prompt(&meeting.title, &transcript, &glossary);
+        if settings.kind == providers::KIND_API {
+            if let Some(project_id) = meeting.project_id.as_deref() {
+                let project = self.get_project(project_id)?;
+                self.record_privacy_receipt(&PrivacyReceiptInput {
+                    organization_id: project.organization_id,
+                    project_id: Some(project_id.to_string()),
+                    connection_id: None,
+                    provider: settings.api.provider.clone(),
+                    operation: "meeting.analyse".into(),
+                    reason: "User requested meeting analysis with a cloud language model".into(),
+                    data_categories: vec![
+                        "meeting transcript".into(),
+                        "project vocabulary".into(),
+                        "user display name".into(),
+                    ],
+                    destination: match settings.api.provider.as_str() {
+                        "anthropic" => "api.anthropic.com".into(),
+                        "openai" => "api.openai.com".into(),
+                        "openrouter" => "openrouter.ai".into(),
+                        _ => settings.api.base_url.clone(),
+                    },
+                    byte_count: Some((system_prompt.len() + user_prompt.len()) as i64),
+                })?;
+            }
+        }
         let completion = providers::complete(settings, &system_prompt, &user_prompt)?;
         let parsed = parse_model_analysis(&completion.content)?;
         self.store_analysis(
