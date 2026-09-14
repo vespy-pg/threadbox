@@ -132,6 +132,10 @@ export const api = {
     throw new Error("Backup export is only available in the desktop app.");
   },
 
+  async importBackup(path: string): Promise<void> {
+    if (inTauri()) await invoke<void>("import_backup", { path });
+  },
+
   async saveDataUrl(path: string, dataUrl: string): Promise<void> {
     if (!inTauri()) throw new Error("Attachment downloads are only available in the desktop app.");
     await invoke<void>("save_data_url", { path, dataUrl });

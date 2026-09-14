@@ -238,6 +238,11 @@ fn export_backup(database: tauri::State<'_, Database>, path: PathBuf) -> AppResu
 }
 
 #[tauri::command]
+fn import_backup(database: tauri::State<'_, Database>, path: PathBuf) -> AppResult<()> {
+    database.import_backup(&path)
+}
+
+#[tauri::command]
 fn list_organizations(database: tauri::State<'_, Database>) -> AppResult<Vec<Organization>> {
     database.list_organizations()
 }
@@ -1662,6 +1667,7 @@ pub fn run() {
             restore_task,
             delete_tasks,
             export_backup,
+            import_backup,
             list_organizations,
             create_organization,
             update_organization,

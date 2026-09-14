@@ -23,3 +23,4 @@ describes shipped behaviour unless it says so.
   recognition and to explain unfamiliar subjects.
 - `privacy-and-sync-model.md` - the four privacy levels, external language model access, and the data
   layer properties any level above device-only requires.
+- `backup-and-recovery.md` - complete local archives, credential exclusions and atomic restore safety.

@@ -33,7 +33,7 @@ import {
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
-import { save } from "@tauri-apps/plugin-dialog";
+import { open as openFile, save } from "@tauri-apps/plugin-dialog";
 import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { check, type Update } from "@tauri-apps/plugin-updater";
@@ -1054,6 +1054,15 @@ function SettingsDialog({ settings, onSettings, onClose, onError }: { settings: 
     } catch (reason) { onError(String(reason)); }
   }
 
+  async function restoreBackup() {
+    try {
+      const path = await openFile({ multiple: false, directory: false, filters: [{ name: "Threadbox backup", extensions: ["zip"] }] });
+      if (!path || !window.confirm("Replace all local Threadbox data with this backup? A failed import rolls back automatically.")) return;
+      await api.importBackup(path);
+      window.location.reload();
+    } catch (reason) { onError(String(reason)); }
+  }
+
   async function changeSettings(patch: Partial<AppSettings>) {
     try {
       onSettings(await api.updateSettings({ ...settings, ...patch }));
@@ -1073,7 +1082,7 @@ function SettingsDialog({ settings, onSettings, onClose, onError }: { settings: 
     <section className="settings-section"><h3>Date and time</h3><p>Choose how hours are displayed in task dates and the clock picker.</p><label className="setting-select"><span>Clock format</span><select value={settings.clockFormat} onChange={(event) => changeSettings({ clockFormat: event.target.value as AppSettings["clockFormat"] })}><option value="24h">24-hour clock</option><option value="12h">12-hour clock</option></select></label></section>
     <section className="settings-section"><h3>Welcome guide</h3><p>Show the short introduction again after this Settings window is closed.</p><button className="secondary-button" disabled={!settings.welcomeCompleted} onClick={() => void changeSettings({ welcomeCompleted: false })}>Show welcome guide again</button>{!settings.welcomeCompleted && <p className="setting-confirmation"><Check size={14} />Ready. Close Settings to open the welcome guide.</p>}</section>
     {releaseUpdatesEnabled && <ApplicationUpdates onError={onError} />}
-    <section className="settings-section"><h3>Backup</h3><p>Export tasks, message references and attachments to a portable JSON file.</p><button className="secondary-button" onClick={backup}>Export backup</button></section>
+    <section className="settings-section"><h3>Backup</h3><p>Export the complete local database and media to a portable archive. Provider passwords and tokens remain in the operating system credential store and are never included.</p><div className="setting-actions"><button className="secondary-button" onClick={backup}>Export backup</button><button className="secondary-button" onClick={() => void restoreBackup()}>Restore backup</button></div></section>
   </div></div>;
 }
 

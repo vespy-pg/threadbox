@@ -1,6 +1,6 @@
 use std::{
     collections::HashSet,
-    fs,
+    fs, io,
     path::{Path, PathBuf},
 };
 
@@ -11,7 +11,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
-use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
+use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter};
 
 use crate::{
     error::{AppError, AppResult},
@@ -192,6 +192,10 @@ impl Database {
         if version < 13 {
             crate::standard_mail::migrate_schema(&connection)?;
             connection.pragma_update(None, "user_version", 13)?;
+        }
+        if version < 14 {
+            crate::integrations::migrate_schema(&connection)?;
+            connection.pragma_update(None, "user_version", 14)?;
         }
         Ok(())
     }
@@ -606,7 +610,7 @@ impl Database {
         }
         let payload = serde_json::json!({
             "format": "threadbox-backup",
-            "version": 4,
+            "version": 5,
             "exportedAt": Utc::now().to_rfc3339(),
             "tasks": tasks,
         });
@@ -615,12 +619,143 @@ impl Database {
         let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
         archive.start_file("backup.json", options)?;
         std::io::Write::write_all(&mut archive, &serde_json::to_vec_pretty(&payload)?)?;
+        let snapshot_path = self
+            .path
+            .with_extension(format!("backup-{}.sqlite3", Uuid::new_v4()));
+        self.connect()?
+            .execute("VACUUM INTO ?1", [snapshot_path.to_string_lossy().as_ref()])?;
+        archive.start_file("database.sqlite3", options)?;
+        io::copy(&mut fs::File::open(&snapshot_path)?, &mut archive)?;
+        fs::remove_file(&snapshot_path)?;
         let media_root = self.media_root();
         if media_root.exists() {
             append_directory_to_zip(&mut archive, &media_root, &media_root, options)?;
         }
         archive.finish()?;
         Ok(())
+    }
+
+    pub fn import_backup(&self, path: &Path) -> AppResult<()> {
+        let parent = self.path.parent().ok_or(AppError::DataDirectory)?;
+        let staging = parent.join(format!("restore-{}", Uuid::new_v4()));
+        let staged_database = staging.join("threadbox.sqlite3");
+        let staged_media = staging.join("media");
+        fs::create_dir_all(&staged_media)?;
+
+        let result = (|| -> AppResult<()> {
+            let mut archive = ZipArchive::new(fs::File::open(path)?)?;
+            let manifest: Value = serde_json::from_reader(archive.by_name("backup.json")?)?;
+            if manifest.get("format").and_then(Value::as_str) != Some("threadbox-backup")
+                || manifest
+                    .get("version")
+                    .and_then(Value::as_i64)
+                    .unwrap_or_default()
+                    < 5
+            {
+                return Err(AppError::InvalidInput(
+                    "This backup does not contain a complete Threadbox database".into(),
+                ));
+            }
+            io::copy(
+                &mut archive.by_name("database.sqlite3")?,
+                &mut fs::File::create(&staged_database)?,
+            )?;
+            for index in 0..archive.len() {
+                let mut entry = archive.by_index(index)?;
+                let Some(name) = entry.enclosed_name() else {
+                    return Err(AppError::InvalidInput(
+                        "The backup contains an unsafe file path".into(),
+                    ));
+                };
+                if entry.is_dir() || !name.starts_with("media") {
+                    continue;
+                }
+                let relative = name.strip_prefix("media").map_err(|_| {
+                    AppError::InvalidInput("The backup contains an unsafe media path".into())
+                })?;
+                let destination = staged_media.join(relative);
+                if let Some(directory) = destination.parent() {
+                    fs::create_dir_all(directory)?;
+                }
+                io::copy(&mut entry, &mut fs::File::create(destination)?)?;
+            }
+
+            let staged = Database {
+                path: staged_database.clone(),
+            };
+            let integrity: String =
+                staged
+                    .connect()?
+                    .query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
+            if integrity != "ok" {
+                return Err(AppError::InvalidInput(format!(
+                    "The backup database failed its integrity check: {integrity}"
+                )));
+            }
+            let schema_version: i64 =
+                staged
+                    .connect()?
+                    .query_row("PRAGMA user_version", [], |row| row.get(0))?;
+            if schema_version > 14 {
+                return Err(AppError::InvalidInput(
+                    "This backup was created by a newer Threadbox version".into(),
+                ));
+            }
+            staged.migrate()?;
+            let foreign_key_errors: i64 = staged.connect()?.query_row(
+                "SELECT COUNT(*) FROM pragma_foreign_key_check",
+                [],
+                |row| row.get(0),
+            )?;
+            if foreign_key_errors != 0 {
+                return Err(AppError::InvalidInput(
+                    "The backup database contains broken relationships".into(),
+                ));
+            }
+            staged
+                .connect()?
+                .execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")?;
+            remove_sqlite_sidecars(&staged_database)?;
+
+            let rollback_database = parent.join(format!("rollback-{}.sqlite3", Uuid::new_v4()));
+            let rollback_media = parent.join(format!("rollback-media-{}", Uuid::new_v4()));
+            let media_root = self.media_root();
+            self.connect()?
+                .execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")?;
+            remove_sqlite_sidecars(&self.path)?;
+            fs::rename(&self.path, &rollback_database)?;
+            let had_media = media_root.exists();
+            if had_media {
+                if let Err(error) = fs::rename(&media_root, &rollback_media) {
+                    fs::rename(&rollback_database, &self.path)?;
+                    return Err(error.into());
+                }
+            }
+            if let Err(error) = fs::rename(&staged_database, &self.path) {
+                fs::rename(&rollback_database, &self.path)?;
+                if had_media {
+                    fs::rename(&rollback_media, &media_root)?;
+                }
+                return Err(error.into());
+            }
+            if let Err(error) = fs::rename(&staged_media, &media_root) {
+                fs::remove_file(&self.path)?;
+                fs::rename(&rollback_database, &self.path)?;
+                if had_media {
+                    fs::rename(&rollback_media, &media_root)?;
+                }
+                return Err(error.into());
+            }
+            fs::remove_file(rollback_database)?;
+            if had_media {
+                fs::remove_dir_all(rollback_media)?;
+            }
+            Ok(())
+        })();
+        if staging.exists() {
+            fs::remove_dir_all(&staging)?;
+        }
+        result
     }
 
     pub fn open_media(&self, reference: &str) -> AppResult<()> {
@@ -966,6 +1101,16 @@ fn validate_priority(priority: &str) -> AppResult<()> {
     }
 }
 
+fn remove_sqlite_sidecars(path: &Path) -> AppResult<()> {
+    for suffix in ["-wal", "-shm"] {
+        let sidecar = PathBuf::from(format!("{}{suffix}", path.to_string_lossy()));
+        if sidecar.exists() {
+            fs::remove_file(sidecar)?;
+        }
+    }
+    Ok(())
+}
+
 fn purge_expired_tasks(connection: &Connection, retention_days: u64) -> AppResult<Vec<String>> {
     let cutoff = (Utc::now() - chrono::Duration::days(retention_days as i64)).to_rfc3339();
     let mut statement = connection.prepare(
@@ -1128,6 +1273,20 @@ mod tests {
         let stored_path = backup["tasks"][0]["screenshots"][0].as_str().unwrap();
         assert!(stored_path.starts_with("media/blobs/"));
         assert!(archive.by_name(stored_path).is_ok());
+        assert!(archive.by_name("database.sqlite3").is_ok());
+        drop(archive);
+
+        let restored = test_database();
+        restored.create_task(task_input("Replace me")).unwrap();
+        restored.import_backup(&backup_path).unwrap();
+        let tasks = restored.list_tasks().unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].title, "Archive media");
+        assert!(
+            media::resolve(&restored.media_root(), &tasks[0].screenshots[0])
+                .unwrap()
+                .is_file()
+        );
     }
 
     #[test]

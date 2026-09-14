@@ -288,7 +288,8 @@ and platform-specific failures are stated without Linux terminology.
 Implementation status: privacy receipts now record approved mail and calendar writes plus meeting
 audio or transcript data sent to configured cloud providers. Receipts contain metadata and byte
 counts when known, never a second copy of the content, and are visible per organisation in
-Integrations.
+Integrations. Backup version 5 now includes a consistent full database snapshot and media; restore
+validates it in staging and rolls back the database and media together if replacement fails.
 
 - Complete Google OAuth verification work required by the selected Gmail scopes.
 - Add provider rate-limit, token-expiry, offline and partial-sync recovery tests.
