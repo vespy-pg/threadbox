@@ -170,6 +170,7 @@ export interface AppSettings {
   audioInputMode: AudioInputMode;
   taskRetentionDays: number;
   googleOauthClientId: string;
+  microsoftOauthClientId: string;
   speech: SpeechSettings;
   languageModel: LanguageModelSettings;
 }
@@ -523,6 +524,7 @@ export interface MailDraftInput {
   threadId: string | null;
   inReplyTo: string | null;
   references: string | null;
+  replyToExternalId: string | null;
 }
 
 export interface MailActionResult {
@@ -548,4 +550,25 @@ export interface ProjectMailItem {
   attachments: ExternalMailAttachment[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface StandardMailConnectionInput {
+  organizationId: string;
+  email: string;
+  displayName: string;
+  username: string;
+  imapHost: string | null;
+  imapPort: number | null;
+  imapPassword: string | null;
+  smtpHost: string | null;
+  smtpPort: number | null;
+  smtpSecurity: "tls" | "starttls" | null;
+  smtpPassword: string | null;
+}
+
+export interface MailDiagnostic {
+  incomingOk: boolean | null;
+  incomingMessage: string;
+  outgoingOk: boolean | null;
+  outgoingMessage: string;
 }

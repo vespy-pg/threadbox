@@ -2,9 +2,10 @@
 
 Status: approved product direction and implementation plan, recorded on 2026-09-14.
 
-Implementation progress: Milestones 0 through 2 are implemented. Milestone 1 still needs one
-credentialed OpenAI smoke test. Milestone 2 still needs a verified production OAuth client and a
-credentialed Google account smoke test. Milestone 3 is implemented in code and is under validation.
+Implementation progress: Milestones 0 through 4 are implemented in code. Milestone 1 still needs one
+credentialed OpenAI smoke test. Milestones 2 and 3 still need a verified production Google OAuth
+client and credentialed Google account smoke tests. Milestone 4 still needs credentialed end-to-end
+tests against Microsoft 365 and an independent IMAP/SMTP host.
 
 ## Release outcome
 
@@ -248,6 +249,15 @@ Acceptance: mailbox reading works without send access, sending works without mai
 attachments require an explicit fetch, and Threadbox never downloads the whole mailbox by default.
 
 ### Milestone 4: other mail accounts
+
+Implementation: Microsoft desktop OAuth with PKCE, delegated Graph capabilities, token refresh,
+bounded folders and message pages, delta synchronisation, selected body and attachment retrieval,
+drafts, replies and reviewed sending use the provider-neutral mail surface. Standards-based accounts
+configure incoming IMAP and outgoing SMTP independently, keep both credentials in the operating
+system keyring, reject plaintext transport, expose separate connection diagnostics and synchronise a
+bounded Inbox window using UIDVALIDITY and UID cursors. Fastmail and Proton Mail Bridge presets plus
+manual host settings are available. SMTP does not pretend to provide provider-side drafts. Automated
+contract tests pass; real-account acceptance remains release work.
 
 - Add Microsoft Graph with delegated OAuth permissions.
 - Add generic IMAP incoming and SMTP outgoing adapters.

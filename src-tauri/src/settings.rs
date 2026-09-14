@@ -32,6 +32,9 @@ pub struct AppSettings {
     /// ship the project's identifier; this override keeps development builds testable.
     #[serde(default)]
     pub google_oauth_client_id: String,
+    /// Public application identifier for the Microsoft desktop OAuth client.
+    #[serde(default)]
+    pub microsoft_oauth_client_id: String,
     /// Speech recognition provider, model and language. Absent in files written before providers
     /// were configurable, which is why it carries a default rather than being required.
     #[serde(default)]
@@ -56,6 +59,7 @@ impl Default for AppSettings {
             audio_input_mode: default_audio_input_mode(),
             task_retention_days: default_task_retention_days(),
             google_oauth_client_id: String::new(),
+            microsoft_oauth_client_id: String::new(),
             speech: SpeechSettings::default(),
             language_model: LanguageModelSettings::default(),
         }

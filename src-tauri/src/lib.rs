@@ -10,6 +10,8 @@ mod integration;
 pub mod integrations;
 mod media;
 mod meetings;
+mod microsoft;
+mod microsoft_graph;
 mod native_audio;
 mod native_messaging;
 mod providers;
@@ -17,6 +19,7 @@ mod screenshot;
 mod secrets;
 mod settings;
 mod speech;
+mod standard_mail;
 mod transcriptions;
 mod vocabulary;
 mod workspace;
@@ -50,6 +53,7 @@ use serde::Serialize;
 use serde_json::Value;
 use settings::AppSettings;
 use speech::ModelStatus;
+use standard_mail::{MailDiagnostic, StandardMailConnectionInput};
 use tauri_plugin_autostart::ManagerExt;
 use transcriptions::{MeetingTranscript, ProcessingJob, TranscriptionJobConfig};
 use vocabulary::{
@@ -75,6 +79,16 @@ fn configured_google_client_id() -> AppResult<String> {
         return Ok(configured.trim().to_string());
     }
     Ok(option_env!("THREADBOX_GOOGLE_CLIENT_ID")
+        .unwrap_or_default()
+        .to_string())
+}
+
+fn configured_microsoft_client_id() -> AppResult<String> {
+    let configured = AppSettings::load()?.microsoft_oauth_client_id;
+    if !configured.trim().is_empty() {
+        return Ok(configured.trim().to_string());
+    }
+    Ok(option_env!("THREADBOX_MICROSOFT_CLIENT_ID")
         .unwrap_or_default()
         .to_string())
 }
@@ -137,6 +151,49 @@ fn google_scopes(
         scopes.push(google::SCOPE_GMAIL_COMPOSE);
     } else if has(CAPABILITY_MAIL_SEND) {
         scopes.push(google::SCOPE_GMAIL_SEND);
+    }
+    Ok(scopes)
+}
+
+fn microsoft_capability_scope(capability: &str) -> AppResult<&'static str> {
+    match capability {
+        CAPABILITY_MAIL_METADATA_READ => Ok(microsoft::SCOPE_MAIL_METADATA),
+        CAPABILITY_MAIL_CONTENT_READ => Ok(microsoft::SCOPE_MAIL_READ),
+        CAPABILITY_MAIL_COMPOSE => Ok(microsoft::SCOPE_MAIL_COMPOSE),
+        CAPABILITY_MAIL_SEND => Ok(microsoft::SCOPE_MAIL_SEND),
+        _ => Err(error::AppError::InvalidInput(format!(
+            "Unknown Microsoft capability: {capability}"
+        ))),
+    }
+}
+
+fn microsoft_scopes(
+    snapshot: &IntegrationSnapshot,
+    added: Option<&str>,
+) -> AppResult<Vec<&'static str>> {
+    let capabilities = snapshot
+        .capabilities
+        .iter()
+        .filter(|item| item.status == "granted")
+        .map(|item| item.capability.as_str())
+        .chain(added)
+        .collect::<Vec<_>>();
+    let mut scopes = microsoft::SCOPE_IDENTITY.to_vec();
+    let has = |capability: &str| capabilities.contains(&capability);
+    if has(CAPABILITY_MAIL_CONTENT_READ) || has(CAPABILITY_MAIL_COMPOSE) {
+        scopes.push(if has(CAPABILITY_MAIL_COMPOSE) {
+            microsoft::SCOPE_MAIL_COMPOSE
+        } else {
+            microsoft::SCOPE_MAIL_READ
+        });
+    } else if has(CAPABILITY_MAIL_METADATA_READ) {
+        scopes.push(microsoft::SCOPE_MAIL_METADATA);
+    }
+    if has(CAPABILITY_MAIL_SEND) {
+        scopes.push(microsoft::SCOPE_MAIL_SEND);
+    }
+    for capability in capabilities {
+        microsoft_capability_scope(capability)?;
     }
     Ok(scopes)
 }
@@ -922,6 +979,147 @@ fn disconnect_google(database: tauri::State<'_, Database>, connection_id: String
 }
 
 #[tauri::command]
+async fn connect_microsoft(
+    database: tauri::State<'_, Database>,
+    organization_id: String,
+    connection_id: Option<String>,
+) -> AppResult<IntegrationSnapshot> {
+    let client_id = configured_microsoft_client_id()?;
+    let database = database.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let existing = connection_id
+            .as_deref()
+            .map(|id| database.integration_snapshot(id))
+            .transpose()?;
+        if existing
+            .as_ref()
+            .is_some_and(|item| item.connection.organization_id != organization_id)
+        {
+            return Err(error::AppError::InvalidInput(
+                "That Microsoft connection belongs to another organisation".into(),
+            ));
+        }
+        let scopes = existing
+            .as_ref()
+            .map(|snapshot| microsoft_scopes(snapshot, None))
+            .transpose()?
+            .unwrap_or_else(|| microsoft::SCOPE_IDENTITY.to_vec());
+        let login_hint = existing
+            .as_ref()
+            .map(|item| item.connection.account_identifier.as_str());
+        let (token, profile) = microsoft::authorize(&client_id, &scopes, login_hint)?;
+        let email = profile.mail.unwrap_or(profile.user_principal_name);
+        if login_hint.is_some_and(|expected| !email.eq_ignore_ascii_case(expected)) {
+            return Err(error::AppError::InvalidInput(
+                "Microsoft authorized a different account".into(),
+            ));
+        }
+        let snapshot = database.upsert_integration_connection(IntegrationConnectionInput {
+            organization_id,
+            provider: "microsoft".into(),
+            account_identifier: email.clone(),
+            display_name: if profile.display_name.trim().is_empty() {
+                email
+            } else {
+                profile.display_name
+            },
+        })?;
+        microsoft::store_authorized_token(&snapshot.connection.id, token)?;
+        Ok(snapshot)
+    })
+    .await
+    .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
+}
+
+#[tauri::command]
+async fn grant_microsoft_capability(
+    database: tauri::State<'_, Database>,
+    connection_id: String,
+    capability: String,
+) -> AppResult<IntegrationSnapshot> {
+    let client_id = configured_microsoft_client_id()?;
+    let database = database.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let snapshot = database.integration_snapshot(&connection_id)?;
+        if snapshot.connection.provider != "microsoft" {
+            return Err(error::AppError::InvalidInput(
+                "That is not a Microsoft connection".into(),
+            ));
+        }
+        let scope = microsoft_capability_scope(&capability)?;
+        let scopes = microsoft_scopes(&snapshot, Some(&capability))?;
+        let (token, profile) = microsoft::authorize(
+            &client_id,
+            &scopes,
+            Some(&snapshot.connection.account_identifier),
+        )?;
+        let email = profile.mail.unwrap_or(profile.user_principal_name);
+        if !email.eq_ignore_ascii_case(&snapshot.connection.account_identifier) {
+            return Err(error::AppError::InvalidInput(
+                "Microsoft authorized a different account".into(),
+            ));
+        }
+        if !token.grants(&scopes) {
+            return Err(error::AppError::InvalidInput(
+                "Microsoft did not grant every permission selected in Threadbox".into(),
+            ));
+        }
+        microsoft::store_authorized_token(&connection_id, token)?;
+        database.set_integration_capability(&connection_id, &capability, scope, true)
+    })
+    .await
+    .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
+}
+
+#[tauri::command]
+fn revoke_microsoft_capability(
+    database: tauri::State<'_, Database>,
+    connection_id: String,
+    capability: String,
+) -> AppResult<IntegrationSnapshot> {
+    let scope = microsoft_capability_scope(&capability)?;
+    database.set_integration_capability(&connection_id, &capability, scope, false)
+}
+
+#[tauri::command]
+fn disconnect_microsoft(
+    database: tauri::State<'_, Database>,
+    connection_id: String,
+) -> AppResult<()> {
+    microsoft::delete_token(&connection_id)?;
+    database.disconnect_integration(&connection_id)
+}
+
+#[tauri::command]
+fn connect_standard_mail(
+    database: tauri::State<'_, Database>,
+    input: StandardMailConnectionInput,
+) -> AppResult<IntegrationSnapshot> {
+    database.upsert_standard_mail_connection(&input)
+}
+
+#[tauri::command]
+async fn diagnose_standard_mail(
+    database: tauri::State<'_, Database>,
+    connection_id: String,
+) -> AppResult<MailDiagnostic> {
+    let database = database.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || database.diagnose_standard_mail(&connection_id))
+        .await
+        .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
+}
+
+#[tauri::command]
+fn disconnect_standard_mail(
+    database: tauri::State<'_, Database>,
+    connection_id: String,
+) -> AppResult<()> {
+    secrets::delete(&secrets::integration_account("imap", &connection_id))?;
+    secrets::delete(&secrets::integration_account("smtp", &connection_id))?;
+    database.disconnect_integration(&connection_id)
+}
+
+#[tauri::command]
 async fn list_google_calendars(
     database: tauri::State<'_, Database>,
     connection_id: String,
@@ -1050,91 +1248,175 @@ async fn find_google_calendar_time(
 }
 
 #[tauri::command]
-async fn list_google_mail_labels(
+async fn list_mail_labels(
     database: tauri::State<'_, Database>,
     connection_id: String,
 ) -> AppResult<Vec<ExternalMailLabel>> {
-    let client_id = configured_google_client_id()?;
+    let google_client_id = configured_google_client_id()?;
+    let microsoft_client_id = configured_microsoft_client_id()?;
     let database = database.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        database.google_mail_labels(&connection_id, &client_id)
+        match database
+            .integration_snapshot(&connection_id)?
+            .connection
+            .provider
+            .as_str()
+        {
+            "google" => database.google_mail_labels(&connection_id, &google_client_id),
+            "microsoft" => database.microsoft_mail_labels(&connection_id, &microsoft_client_id),
+            "standard_mail" => database.standard_mail_labels(&connection_id),
+            provider => Err(error::AppError::InvalidInput(format!(
+                "Mail is not implemented for {provider}"
+            ))),
+        }
     })
     .await
     .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
 }
 
 #[tauri::command]
-async fn list_google_mail(
+async fn list_mail(
     database: tauri::State<'_, Database>,
     input: MailListInput,
 ) -> AppResult<MailPage> {
-    let client_id = configured_google_client_id()?;
-    let database = database.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || database.google_mail_page(&client_id, &input))
-        .await
-        .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
-}
-
-#[tauri::command]
-async fn sync_google_mail(
-    database: tauri::State<'_, Database>,
-    connection_id: String,
-) -> AppResult<MailSyncResult> {
-    let client_id = configured_google_client_id()?;
+    let google_client_id = configured_google_client_id()?;
+    let microsoft_client_id = configured_microsoft_client_id()?;
     let database = database.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        database.sync_google_mail_headers(&connection_id, &client_id)
+        match database
+            .integration_snapshot(&input.connection_id)?
+            .connection
+            .provider
+            .as_str()
+        {
+            "google" => database.google_mail_page(&google_client_id, &input),
+            "microsoft" => database.microsoft_mail_page(&microsoft_client_id, &input),
+            "standard_mail" => database.standard_mail_page(&input),
+            provider => Err(error::AppError::InvalidInput(format!(
+                "Mail is not implemented for {provider}"
+            ))),
+        }
     })
     .await
     .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
 }
 
 #[tauri::command]
-async fn get_google_mail_message(
+async fn sync_mail(
+    database: tauri::State<'_, Database>,
+    connection_id: String,
+) -> AppResult<MailSyncResult> {
+    let google_client_id = configured_google_client_id()?;
+    let microsoft_client_id = configured_microsoft_client_id()?;
+    let database = database.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        match database
+            .integration_snapshot(&connection_id)?
+            .connection
+            .provider
+            .as_str()
+        {
+            "google" => database.sync_google_mail_headers(&connection_id, &google_client_id),
+            "microsoft" => {
+                database.sync_microsoft_mail_headers(&connection_id, &microsoft_client_id)
+            }
+            "standard_mail" => database.sync_standard_mail_headers(&connection_id),
+            provider => Err(error::AppError::InvalidInput(format!(
+                "Mail is not implemented for {provider}"
+            ))),
+        }
+    })
+    .await
+    .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
+}
+
+#[tauri::command]
+async fn get_mail_message(
     database: tauri::State<'_, Database>,
     connection_id: String,
     message_id: String,
 ) -> AppResult<ExternalMailMessage> {
-    let client_id = configured_google_client_id()?;
+    let google_client_id = configured_google_client_id()?;
+    let microsoft_client_id = configured_microsoft_client_id()?;
     let database = database.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        database.google_mail_message(&connection_id, &client_id, &message_id)
+        match database
+            .integration_snapshot(&connection_id)?
+            .connection
+            .provider
+            .as_str()
+        {
+            "google" => {
+                database.google_mail_message(&connection_id, &google_client_id, &message_id)
+            }
+            "microsoft" => {
+                database.microsoft_mail_message(&connection_id, &microsoft_client_id, &message_id)
+            }
+            "standard_mail" => database.standard_mail_message(&connection_id, &message_id),
+            provider => Err(error::AppError::InvalidInput(format!(
+                "Mail is not implemented for {provider}"
+            ))),
+        }
     })
     .await
     .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
 }
 
 #[tauri::command]
-async fn get_google_mail_attachment(
+async fn get_mail_attachment(
     database: tauri::State<'_, Database>,
     connection_id: String,
     message_id: String,
     attachment_id: String,
     mime_type: String,
 ) -> AppResult<String> {
-    let client_id = configured_google_client_id()?;
+    let google_client_id = configured_google_client_id()?;
+    let microsoft_client_id = configured_microsoft_client_id()?;
     let database = database.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        database.google_mail_attachment(
-            &connection_id,
-            &client_id,
-            &message_id,
-            &attachment_id,
-            &mime_type,
-        )
+        match database
+            .integration_snapshot(&connection_id)?
+            .connection
+            .provider
+            .as_str()
+        {
+            "google" => database.google_mail_attachment(
+                &connection_id,
+                &google_client_id,
+                &message_id,
+                &attachment_id,
+                &mime_type,
+            ),
+            "microsoft" => database.microsoft_mail_attachment(
+                &connection_id,
+                &microsoft_client_id,
+                &message_id,
+                &attachment_id,
+                &mime_type,
+            ),
+            "standard_mail" => database.standard_mail_attachment(
+                &connection_id,
+                &message_id,
+                &attachment_id,
+                &mime_type,
+            ),
+            provider => Err(error::AppError::InvalidInput(format!(
+                "Mail is not implemented for {provider}"
+            ))),
+        }
     })
     .await
     .map_err(|error| error::AppError::InvalidInput(error.to_string()))?
 }
 
 #[tauri::command]
-fn import_google_mail_message(
+fn import_mail_message(
     database: tauri::State<'_, Database>,
     connection_id: String,
     project_id: String,
     message: ExternalMailMessage,
 ) -> AppResult<ProjectMailItem> {
-    database.import_google_mail_message(&connection_id, &project_id, &message)
+    database.import_mail_message(&connection_id, &project_id, &message)
 }
 
 #[tauri::command]
@@ -1146,27 +1428,28 @@ fn list_project_mail(
 }
 
 #[tauri::command]
-async fn create_google_mail_draft(
+async fn create_mail_draft(
     database: tauri::State<'_, Database>,
     input: MailDraftInput,
 ) -> AppResult<MailActionResult> {
-    execute_google_mail_action(database.inner().clone(), input, false).await
+    execute_mail_action(database.inner().clone(), input, false).await
 }
 
 #[tauri::command]
-async fn send_google_mail(
+async fn send_mail(
     database: tauri::State<'_, Database>,
     input: MailDraftInput,
 ) -> AppResult<MailActionResult> {
-    execute_google_mail_action(database.inner().clone(), input, true).await
+    execute_mail_action(database.inner().clone(), input, true).await
 }
 
-async fn execute_google_mail_action(
+async fn execute_mail_action(
     database: Database,
     input: MailDraftInput,
     send: bool,
 ) -> AppResult<MailActionResult> {
-    let client_id = configured_google_client_id()?;
+    let google_client_id = configured_google_client_id()?;
+    let microsoft_client_id = configured_microsoft_client_id()?;
     tauri::async_runtime::spawn_blocking(move || {
         let capability = if send {
             CAPABILITY_MAIL_SEND
@@ -1186,10 +1469,24 @@ async fn execute_google_mail_action(
             payload: serde_json::to_value(&input)?,
         })?;
         let attempt = database.start_external_action_attempt(&action.id)?;
-        let result = if send {
-            database.send_google_mail(&client_id, &input)
-        } else {
-            database.create_google_mail_draft(&client_id, &input)
+        let provider = database
+            .integration_snapshot(&input.connection_id)?
+            .connection
+            .provider;
+        let result = match (provider.as_str(), send) {
+            ("google", true) => database.send_google_mail(&google_client_id, &input),
+            ("google", false) => database.create_google_mail_draft(&google_client_id, &input),
+            ("microsoft", true) => database.send_microsoft_mail(&microsoft_client_id, &input),
+            ("microsoft", false) => {
+                database.create_microsoft_mail_draft(&microsoft_client_id, &input)
+            }
+            ("standard_mail", true) => database.send_standard_mail(&input),
+            ("standard_mail", false) => Err(error::AppError::InvalidInput(
+                "Standard SMTP accounts do not have a remote drafts API".into(),
+            )),
+            _ => Err(error::AppError::InvalidInput(format!(
+                "Mail is not implemented for {provider}"
+            ))),
         };
         match result {
             Ok(result) => {
@@ -1427,20 +1724,27 @@ pub fn run() {
             grant_google_capability,
             revoke_google_capability,
             disconnect_google,
+            connect_microsoft,
+            grant_microsoft_capability,
+            revoke_microsoft_capability,
+            disconnect_microsoft,
+            connect_standard_mail,
+            diagnose_standard_mail,
+            disconnect_standard_mail,
             list_google_calendars,
             list_google_calendar_events,
             create_google_calendar_event,
             import_google_calendar_event,
             find_google_calendar_time,
-            list_google_mail_labels,
-            list_google_mail,
-            sync_google_mail,
-            get_google_mail_message,
-            get_google_mail_attachment,
-            import_google_mail_message,
+            list_mail_labels,
+            list_mail,
+            sync_mail,
+            get_mail_message,
+            get_mail_attachment,
+            import_mail_message,
             list_project_mail,
-            create_google_mail_draft,
-            send_google_mail,
+            create_mail_draft,
+            send_mail,
             capture_screenshot,
             start_native_recording,
             warm_up_audio,

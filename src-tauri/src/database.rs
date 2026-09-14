@@ -189,6 +189,10 @@ impl Database {
             crate::gmail::migrate_schema(&connection)?;
             connection.pragma_update(None, "user_version", 12)?;
         }
+        if version < 13 {
+            crate::standard_mail::migrate_schema(&connection)?;
+            connection.pragma_update(None, "user_version", 13)?;
+        }
         Ok(())
     }
 

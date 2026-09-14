@@ -101,6 +101,8 @@ pub struct MailDraftInput {
     pub thread_id: Option<String>,
     pub in_reply_to: Option<String>,
     pub references: Option<String>,
+    #[serde(default)]
+    pub reply_to_external_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -461,7 +463,7 @@ impl Database {
         })
     }
 
-    pub fn import_google_mail_message(
+    pub fn import_mail_message(
         &self,
         connection_id: &str,
         project_id: &str,
@@ -907,6 +909,7 @@ mod tests {
             thread_id: Some("thread".into()),
             in_reply_to: Some("<message@example.com>".into()),
             references: Some("<parent@example.com>".into()),
+            reply_to_external_id: None,
         })
         .unwrap();
         let decoded = String::from_utf8(URL_SAFE_NO_PAD.decode(&raw).unwrap()).unwrap();
@@ -1017,11 +1020,11 @@ mod tests {
             attachments: Vec::new(),
         };
         database
-            .import_google_mail_message(&connection.connection.id, &project.id, &message)
+            .import_mail_message(&connection.connection.id, &project.id, &message)
             .unwrap();
         message.body_text = Some("Full message".into());
         assert!(database
-            .import_google_mail_message(&connection.connection.id, &project.id, &message)
+            .import_mail_message(&connection.connection.id, &project.id, &message)
             .is_err());
         database
             .set_integration_capability(
@@ -1032,7 +1035,7 @@ mod tests {
             )
             .unwrap();
         let imported = database
-            .import_google_mail_message(&connection.connection.id, &project.id, &message)
+            .import_mail_message(&connection.connection.id, &project.id, &message)
             .unwrap();
         assert_eq!(imported.body_text.as_deref(), Some("Full message"));
         let linked: i64 = database

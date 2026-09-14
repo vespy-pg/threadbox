@@ -1,7 +1,8 @@
 # Communication integrations
 
-Status: implementation boundary, updated on 2026-09-14. Google Calendar and Gmail now have desktop
-adapters, while other external communication remains planned. The active release scope is defined in
+Status: implementation boundary, updated on 2026-09-14. Google Calendar, Gmail, Microsoft Graph mail
+and standards-based IMAP/SMTP mail now have desktop adapters. Credentialed provider acceptance and
+other external communication remain release work. The active release scope is defined in
 `first-useful-release-plan.md`.
 
 ## Product boundary
@@ -26,7 +27,8 @@ The application must never turn a preview control into a real external side effe
 | Gmail | Implemented, awaiting credentialed verification | Google OAuth and Gmail API | Bounded reading, project links, drafts and reviewed sending |
 | Slack messages | High | Slack app, OAuth and scoped bot token | Post to selected channels and direct-message conversations |
 | Slack calls | Partial | Slack Calls API only represents an external call in Slack | Attach a Threadbox or telephony call link, do not treat Slack as the media provider |
-| Email beyond Gmail | High | Microsoft Graph or standard SMTP and IMAP per account type | Add after the Google flow proves the shared action model |
+| Microsoft mail | Implemented, awaiting credentialed verification | Delegated Microsoft Graph permissions | Bounded reading, project links, drafts, replies and reviewed sending |
+| Standards-based mail | Implemented, awaiting credentialed verification | TLS IMAP and TLS or required STARTTLS SMTP | Bounded incoming mail and reviewed direct sending |
 | Telephone network | High | Cloud telephony, SIP provider, or a paired Android phone | Start with a user-confirmed Android dial action or a cloud-provider proof of concept |
 
 Official references:
@@ -95,6 +97,24 @@ and every attachment has its own explicit fetch action. Gmail search also needs 
 because the API does not permit its `q` parameter under the metadata-only scope. Outbound messages
 are RFC-compliant MIME payloads encoded for the Gmail API; the exact recipient, subject and body are
 stored with the reviewed external action before Gmail is called.
+
+Microsoft personal, work and school accounts use a public desktop OAuth flow with PKCE and a random
+localhost callback. Threadbox maps metadata, content, draft and send outcomes to delegated Microsoft
+Graph scopes and enforces each capability locally. Folder pages are bounded, provider continuation
+links are replayed unchanged, Inbox changes use a stored Graph delta link, and bodies or attachment
+bytes are requested only after the user selects them. New messages, replies and remote drafts use the
+same reviewed project action and immutable attempt records as Gmail.
+
+Other providers can be connected with incoming IMAP, outgoing SMTP or both. The two passwords or app
+passwords are separate keyring entries. IMAP uses implicit TLS; SMTP supports implicit TLS or
+mandatory STARTTLS and refuses plaintext credential transport. Inbox header synchronisation is
+bounded to 30 messages and stores UIDVALIDITY plus the latest UID, while folder browsing is explicitly
+requested by the user. Opening an IMAP message retrieves its MIME container to parse the body and
+attachment descriptors; attachment data is not retained or exposed until the user requests that
+attachment. Unlike Gmail and Graph, SMTP has no provider-side drafts API, so Threadbox offers reviewed
+direct sending but labels remote drafts unavailable. Fastmail and Proton Mail Bridge presets reduce
+setup fields, with manual configuration for other providers. Proton Mail Bridge may require trusting
+its locally generated certificate according to the Bridge setup on that computer.
 
 ## Local language model on the current computer
 

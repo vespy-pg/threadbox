@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { readImage } from "@tauri-apps/plugin-clipboard-manager";
 import { setMediaRoot } from "./media";
-import type { AppSettings, ApiProvider, AvailableSlot, CalendarEventDraft, ExternalCalendar, ExternalCalendarEvent, ExternalMailLabel, ExternalMailMessage, FindTimeInput, IntegrationCapabilityId, IntegrationSnapshot, LanguageModelStatus, MailActionResult, MailDraftInput, MailListInput, MailPage, MailSyncResult, Meeting, MeetingAnalysis, MeetingInput, MeetingTranscript, ModelStatus, Organization, OrganizationMember, Person, ProcessingJob, Project, ProjectDocument, ProjectDocumentInput, ProjectLanguage, ProjectMailItem, ProviderProbe, SpeechCloudStatus, SpeechModelId, SpeechProvider, Task, TaskInput, TaskPatch, VocabularyCandidate, VocabularySet, VocabularySetInput, VocabularyTerm, VocabularyTermInput } from "./types";
+import type { AppSettings, ApiProvider, AvailableSlot, CalendarEventDraft, ExternalCalendar, ExternalCalendarEvent, ExternalMailLabel, ExternalMailMessage, FindTimeInput, IntegrationCapabilityId, IntegrationSnapshot, LanguageModelStatus, MailActionResult, MailDiagnostic, MailDraftInput, MailListInput, MailPage, MailSyncResult, Meeting, MeetingAnalysis, MeetingInput, MeetingTranscript, ModelStatus, Organization, OrganizationMember, Person, ProcessingJob, Project, ProjectDocument, ProjectDocumentInput, ProjectLanguage, ProjectMailItem, ProviderProbe, SpeechCloudStatus, SpeechModelId, SpeechProvider, StandardMailConnectionInput, Task, TaskInput, TaskPatch, VocabularyCandidate, VocabularySet, VocabularySetInput, VocabularyTerm, VocabularyTermInput } from "./types";
 
 const inTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 
@@ -21,6 +21,7 @@ const browserSettings: AppSettings = {
   audioInputMode: "microphone",
   taskRetentionDays: 7,
   googleOauthClientId: "",
+  microsoftOauthClientId: "",
   speech: { provider: "local", model: "small", language: "auto", terminologyLanguage: null, cloudModel: "whisper-1" },
   languageModel: {
     kind: "unset",
@@ -416,6 +417,34 @@ export const api = {
     await invoke<void>("disconnect_google", { connectionId });
   },
 
+  async connectMicrosoft(organizationId: string, connectionId?: string): Promise<IntegrationSnapshot> {
+    return invoke<IntegrationSnapshot>("connect_microsoft", { organizationId, connectionId: connectionId ?? null });
+  },
+
+  async grantMicrosoftCapability(connectionId: string, capability: IntegrationCapabilityId): Promise<IntegrationSnapshot> {
+    return invoke<IntegrationSnapshot>("grant_microsoft_capability", { connectionId, capability });
+  },
+
+  async revokeMicrosoftCapability(connectionId: string, capability: IntegrationCapabilityId): Promise<IntegrationSnapshot> {
+    return invoke<IntegrationSnapshot>("revoke_microsoft_capability", { connectionId, capability });
+  },
+
+  async disconnectMicrosoft(connectionId: string): Promise<void> {
+    await invoke<void>("disconnect_microsoft", { connectionId });
+  },
+
+  async connectStandardMail(input: StandardMailConnectionInput): Promise<IntegrationSnapshot> {
+    return invoke<IntegrationSnapshot>("connect_standard_mail", { input });
+  },
+
+  async diagnoseStandardMail(connectionId: string): Promise<MailDiagnostic> {
+    return invoke<MailDiagnostic>("diagnose_standard_mail", { connectionId });
+  },
+
+  async disconnectStandardMail(connectionId: string): Promise<void> {
+    await invoke<void>("disconnect_standard_mail", { connectionId });
+  },
+
   async listGoogleCalendars(connectionId: string): Promise<ExternalCalendar[]> {
     return invoke<ExternalCalendar[]>("list_google_calendars", { connectionId });
   },
@@ -437,27 +466,27 @@ export const api = {
   },
 
   async listGoogleMailLabels(connectionId: string): Promise<ExternalMailLabel[]> {
-    return invoke<ExternalMailLabel[]>("list_google_mail_labels", { connectionId });
+    return invoke<ExternalMailLabel[]>("list_mail_labels", { connectionId });
   },
 
   async listGoogleMail(input: MailListInput): Promise<MailPage> {
-    return invoke<MailPage>("list_google_mail", { input });
+    return invoke<MailPage>("list_mail", { input });
   },
 
   async syncGoogleMail(connectionId: string): Promise<MailSyncResult> {
-    return invoke<MailSyncResult>("sync_google_mail", { connectionId });
+    return invoke<MailSyncResult>("sync_mail", { connectionId });
   },
 
   async getGoogleMailMessage(connectionId: string, messageId: string): Promise<ExternalMailMessage> {
-    return invoke<ExternalMailMessage>("get_google_mail_message", { connectionId, messageId });
+    return invoke<ExternalMailMessage>("get_mail_message", { connectionId, messageId });
   },
 
   async getGoogleMailAttachment(connectionId: string, messageId: string, attachmentId: string, mimeType: string): Promise<string> {
-    return invoke<string>("get_google_mail_attachment", { connectionId, messageId, attachmentId, mimeType });
+    return invoke<string>("get_mail_attachment", { connectionId, messageId, attachmentId, mimeType });
   },
 
   async importGoogleMailMessage(connectionId: string, projectId: string, message: ExternalMailMessage): Promise<ProjectMailItem> {
-    return invoke<ProjectMailItem>("import_google_mail_message", { connectionId, projectId, message });
+    return invoke<ProjectMailItem>("import_mail_message", { connectionId, projectId, message });
   },
 
   async listProjectMail(projectId: string): Promise<ProjectMailItem[]> {
@@ -465,11 +494,11 @@ export const api = {
   },
 
   async createGoogleMailDraft(input: MailDraftInput): Promise<MailActionResult> {
-    return invoke<MailActionResult>("create_google_mail_draft", { input });
+    return invoke<MailActionResult>("create_mail_draft", { input });
   },
 
   async sendGoogleMail(input: MailDraftInput): Promise<MailActionResult> {
-    return invoke<MailActionResult>("send_google_mail", { input });
+    return invoke<MailActionResult>("send_mail", { input });
   },
 
   async captureScreenshot(): Promise<string> {
