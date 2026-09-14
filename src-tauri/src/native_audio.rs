@@ -76,24 +76,12 @@ impl NativeAudioRecorder {
 
         let host = preferred_host()?;
         let device = if input_mode == "system" {
-            host.input_devices()
-                .map_err(|error| audio_error(format!("Could not list audio inputs: {error}")))?
-                .find(|device| {
-                    device
-                        .description()
-                        .is_ok_and(|description| {
-                            let name = description.name().to_lowercase();
-                            name.contains("monitor") || name.contains("loopback")
-                        })
-                })
-                .ok_or_else(|| audio_error("No system audio monitor is available. Enable a monitor source in PipeWire or PulseAudio."))?
+            system_monitor(&host)?
         } else {
             host.default_input_device()
                 .ok_or_else(|| audio_error("No default microphone is available"))?
         };
-        let supported = device.default_input_config().map_err(|error| {
-            audio_error(format!("Could not read the audio input format: {error}"))
-        })?;
+        let supported = capture_config(&device)?;
         let sample_format = supported.sample_format();
         let config: StreamConfig = supported.into();
         let samples = Arc::new(Mutex::new(Vec::new()));
@@ -558,6 +546,7 @@ fn build_stream(
     stream.map_err(|error| audio_error(format!("Could not open the microphone: {error}")))
 }
 
+#[cfg(target_os = "linux")]
 fn system_monitor(host: &cpal::Host) -> AppResult<cpal::Device> {
     host.input_devices()
         .map_err(|error| audio_error(format!("Could not list audio inputs: {error}")))?
@@ -574,10 +563,23 @@ fn system_monitor(host: &cpal::Host) -> AppResult<cpal::Device> {
         })
 }
 
+#[cfg(target_os = "windows")]
+fn system_monitor(host: &cpal::Host) -> AppResult<cpal::Device> {
+    // CPAL treats a WASAPI render endpoint used as an input as a shared-mode loopback stream.
+    host.default_output_device().ok_or_else(|| {
+        audio_error("No default Windows audio output is available for loopback capture")
+    })
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+fn system_monitor(_host: &cpal::Host) -> AppResult<cpal::Device> {
+    Err(audio_error(
+        "System audio capture is not implemented on this platform",
+    ))
+}
+
 fn capture_track(device: &cpal::Device) -> AppResult<CapturedTrack> {
-    let supported = device
-        .default_input_config()
-        .map_err(|error| audio_error(format!("Could not read an audio input format: {error}")))?;
+    let supported = capture_config(device)?;
     let sample_format = supported.sample_format();
     let config: StreamConfig = supported.into();
     let samples = Arc::new(Mutex::new(Vec::new()));
@@ -588,6 +590,21 @@ fn capture_track(device: &cpal::Device) -> AppResult<CapturedTrack> {
         sample_rate: config.sample_rate,
         channels: config.channels,
     })
+}
+
+#[cfg(target_os = "windows")]
+fn capture_config(device: &cpal::Device) -> AppResult<cpal::SupportedStreamConfig> {
+    device
+        .default_input_config()
+        .or_else(|_| device.default_output_config())
+        .map_err(|error| audio_error(format!("Could not read a WASAPI capture format: {error}")))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn capture_config(device: &cpal::Device) -> AppResult<cpal::SupportedStreamConfig> {
+    device
+        .default_input_config()
+        .map_err(|error| audio_error(format!("Could not read an audio input format: {error}")))
 }
 
 fn finish_track(track: CapturedTrack) -> AppResult<Vec<f32>> {

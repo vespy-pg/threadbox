@@ -57,6 +57,8 @@ notify-rust = "4"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", default-features = false, features = ["windows-native"] }
+screenshots = "0.8.10"
+winreg = "0.55"
 
 [features]
 default = ["custom-protocol"]

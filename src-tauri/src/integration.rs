@@ -87,7 +87,7 @@ fn start_reminder_worker(app: AppHandle) {
                         if let Some(source) = task.source_label.as_deref() {
                             body.push_str(&format!("\nSource: {source}"));
                         }
-                        show_system_notification(&task.title, &body)
+                        show_system_notification(&app, &task.title, &body)
                     } else if has_due_tasks {
                         let body = tasks
                             .iter()
@@ -102,6 +102,7 @@ fn start_reminder_worker(app: AppHandle) {
                             .collect::<Vec<_>>()
                             .join("\n");
                         show_system_notification(
+                            &app,
                             &format!("{} Threadbox reminders", tasks.len()),
                             &body,
                         )
@@ -152,7 +153,7 @@ fn format_reminder_context(organization: Option<&str>, project: Option<&str>) ->
 }
 
 #[cfg(target_os = "linux")]
-fn show_system_notification(title: &str, body: &str) -> bool {
+fn show_system_notification(_app: &AppHandle, title: &str, body: &str) -> bool {
     notify_rust::Notification::new()
         .appname("Threadbox")
         .summary(title)
@@ -163,8 +164,15 @@ fn show_system_notification(title: &str, body: &str) -> bool {
 }
 
 #[cfg(not(target_os = "linux"))]
-fn show_system_notification(_title: &str, _body: &str) -> bool {
-    false
+fn show_system_notification(app: &AppHandle, title: &str, body: &str) -> bool {
+    use tauri_plugin_notification::NotificationExt;
+
+    app.notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
+        .is_ok()
 }
 
 pub fn register_firefox_native_host() -> AppResult<()> {
@@ -177,6 +185,35 @@ pub fn register_firefox_native_host() -> AppResult<()> {
         let directory = home.join(".mozilla").join("native-messaging-hosts");
         write_manifest(directory)?;
     }
+    #[cfg(target_os = "windows")]
+    {
+        register_windows_native_host()?;
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn register_windows_native_host() -> AppResult<()> {
+    use winreg::{enums::HKEY_CURRENT_USER, RegKey};
+
+    let data = directories::ProjectDirs::from("com", "Threadbox", "Threadbox")
+        .ok_or(AppError::DataDirectory)?
+        .data_local_dir()
+        .join("native-messaging");
+    fs::create_dir_all(&data)?;
+    let manifest_path = data.join("com.threadbox.capture.json");
+    let manifest = json!({
+        "name": "com.threadbox.capture",
+        "description": "Threadbox browser capture bridge",
+        "path": std::env::current_exe()?,
+        "type": "stdio",
+        "allowed_extensions": ["threadbox@threadbox.app"]
+    });
+    fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest)?)?;
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let (key, _) =
+        hkcu.create_subkey("Software\\Mozilla\\NativeMessagingHosts\\com.threadbox.capture")?;
+    key.set_value("", &manifest_path.to_string_lossy().as_ref())?;
     Ok(())
 }
 

@@ -1,11 +1,13 @@
 #[cfg(target_os = "linux")]
-use std::{path::PathBuf, process::Command, time::Duration};
+use std::process::Command;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+use std::{path::PathBuf, time::Duration};
 
 #[cfg(target_os = "linux")]
 use ashpd::desktop::screenshot::Screenshot;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 use base64::{engine::general_purpose::STANDARD, Engine};
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
@@ -15,12 +17,34 @@ pub async fn capture() -> AppResult<String> {
     {
         capture_linux().await
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
+    {
+        tauri::async_runtime::spawn_blocking(capture_windows)
+            .await
+            .map_err(screenshot_error)?
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         Err(AppError::InvalidInput(
             "Screenshot capture is not implemented on this platform yet".into(),
         ))
     }
+}
+
+#[cfg(target_os = "windows")]
+fn capture_windows() -> AppResult<String> {
+    // Match the Linux path's repaint delay after Threadbox hides its own window.
+    std::thread::sleep(Duration::from_millis(500));
+    let screens = screenshots::Screen::all().map_err(screenshot_error)?;
+    let screen = screens
+        .iter()
+        .find(|screen| screen.display_info.is_primary)
+        .or_else(|| screens.first())
+        .ok_or_else(|| AppError::InvalidInput("Windows reported no display to capture".into()))?;
+    let image = screen.capture().map_err(screenshot_error)?;
+    let path = temporary_screenshot_path();
+    image.save(&path).map_err(screenshot_error)?;
+    encode_file(path)
 }
 
 #[cfg(target_os = "linux")]
@@ -86,19 +110,19 @@ async fn capture_with_portal() -> AppResult<String> {
     encode_file(path)
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 fn temporary_screenshot_path() -> PathBuf {
     std::env::temp_dir().join(format!("threadbox-{}.png", Uuid::new_v4()))
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 fn encode_file(path: PathBuf) -> AppResult<String> {
     let bytes = std::fs::read(&path)?;
     let _ = std::fs::remove_file(path);
     Ok(format!("data:image/png;base64,{}", STANDARD.encode(bytes)))
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 fn screenshot_error(error: impl std::fmt::Display) -> AppError {
     AppError::InvalidInput(format!("Screenshot was not captured: {error}"))
 }
