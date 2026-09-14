@@ -24,3 +24,5 @@ describes shipped behaviour unless it says so.
 - `privacy-and-sync-model.md` - the four privacy levels, external language model access, and the data
   layer properties any level above device-only requires.
 - `backup-and-recovery.md` - complete local archives, credential exclusions and atomic restore safety.
+- `oauth-release-checklist.md` - production Google and Microsoft registration and review evidence.
+- `release-acceptance.md` - the real-device and real-provider release record.

@@ -1084,4 +1084,62 @@ mod tests {
         );
         assert!(privacy_receipts[0].byte_count.unwrap() > 0);
     }
+
+    #[test]
+    fn disconnect_hides_the_account_but_preserves_project_history() {
+        let database = database();
+        let organization_id = organization(&database);
+        let account_id = integration(&database, &organization_id);
+        set_capability(&database, &account_id, CAPABILITY_MAIL_SEND, "granted");
+        let action = database
+            .create_approved_external_action(&ExternalActionInput {
+                organization_id,
+                project_id: None,
+                connection_id: account_id.clone(),
+                capability: CAPABILITY_MAIL_SEND.into(),
+                kind: "mail.send".into(),
+                payload: serde_json::json!({"subject": "Retained context"}),
+            })
+            .unwrap();
+        let attempt = database.start_external_action_attempt(&action.id).unwrap();
+        database
+            .finish_external_action_attempt(&action.id, attempt, Some("provider-message-1"), None)
+            .unwrap();
+
+        database.disconnect_integration(&account_id).unwrap();
+
+        assert!(database.integration_snapshot(&account_id).is_err());
+        let connection = database.connect().unwrap();
+        let (status, deleted): (String, bool) = connection
+            .query_row(
+                "SELECT status, deleted_at IS NOT NULL FROM integration_connections WHERE id = ?1",
+                [&account_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        let retained_action: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM external_actions WHERE id = ?1 AND status = 'sent'",
+                [&action.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let retained_attempt: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM execution_attempts WHERE action_id = ?1",
+                [&action.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(connection);
+        let retained_receipts = database
+            .privacy_receipts(&action.organization_id, 10)
+            .unwrap();
+
+        assert_eq!(status, "disconnected");
+        assert!(deleted);
+        assert_eq!(retained_action, 1);
+        assert_eq!(retained_attempt, 1);
+        assert_eq!(retained_receipts.len(), 1);
+    }
 }

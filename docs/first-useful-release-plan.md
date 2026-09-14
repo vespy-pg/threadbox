@@ -2,10 +2,11 @@
 
 Status: approved product direction and implementation plan, recorded on 2026-09-14.
 
-Implementation progress: Milestones 0 through 4 are implemented in code. Milestone 1 still needs one
-credentialed OpenAI smoke test. Milestones 2 and 3 still need a verified production Google OAuth
-client and credentialed Google account smoke tests. Milestone 4 still needs credentialed end-to-end
-tests against Microsoft 365 and an independent IMAP/SMTP host.
+Implementation progress: Milestones 0 through 6 are implemented in code. Milestone 1 still needs one
+credentialed OpenAI smoke test. Milestones 2 and 3 still need Google production verification and
+credentialed Google account smoke tests. Milestone 4 still needs credentialed end-to-end tests
+against Microsoft 365 and an independent IMAP/SMTP host. Milestones 5 and 6 still need signed release
+credentials, clean Windows hardware and the real-device acceptance record.
 
 ## Release outcome
 
@@ -293,6 +294,10 @@ validates it in staging and rolls back the database and media together if replac
 Idempotent Gmail history and Microsoft delta reads retry bounded transient network, 429, 502, 503
 and 504 failures; `Retry-After` is capped, expired tokens refresh before use, Gmail history expiry
 and Microsoft 410 delta expiry restart a full bounded sync without advancing a partial cursor.
+Release builds embed public Google and Microsoft desktop client IDs from repository variables, while
+development builds retain explicit overrides. The organisation-first welcome guide, OAuth production
+checklist and repeatable real-device acceptance record are in place. Production verification,
+credentialed provider runs, signed-update testing and hardware measurements remain release work.
 
 - Complete Google OAuth verification work required by the selected Gmail scopes.
 - Add provider rate-limit, token-expiry, offline and partial-sync recovery tests.

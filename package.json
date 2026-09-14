@@ -2,7 +2,7 @@
   "name": "threadbox",
   "private": true,
   "version": "0.1.16",
-  "description": "A local-first task inbox for work that arrives through conversations.",
+  "description": "A local-first work assistant for organisations, projects, meetings and communication.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -47,7 +47,7 @@
     "jsdom": "^25.0.1",
     "typescript": "^5.7.2",
     "vite": "^6.0.7",
-    "vitest": "^2.1.8",
-    "web-ext": "^8.3.0"
+    "vitest": "^4.1.11",
+    "web-ext": "^10.6.0"
   }
 }

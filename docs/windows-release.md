@@ -36,6 +36,8 @@ Configure these GitHub repository variables:
 
 - `TAURI_UPDATER_PUBLIC_KEY` - public updater key generated with the private key;
 - `WINDOWS_TIMESTAMP_URL` - RFC 3161 timestamp service supplied by the certificate issuer.
+- `GOOGLE_OAUTH_CLIENT_ID` - verified production Google Desktop app client ID;
+- `MICROSOFT_OAUTH_CLIENT_ID` - production Microsoft public desktop client ID.
 
 The public updater key is safe to distribute. Losing or replacing the private updater key prevents
 existing installations from accepting future updates, so keep an offline backup.

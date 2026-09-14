@@ -1029,18 +1029,18 @@ function WelcomeDialog({ shortcut, settings, onSettings, onComplete, onError }: 
 
   if (step === "providers") {
     return <div className="modal-backdrop welcome-backdrop"><section className="welcome-dialog welcome-providers" role="dialog" aria-modal="true" aria-labelledby="welcome-providers-title">
-      <div className="welcome-hero"><div className="welcome-mark"><SlidersHorizontal size={28} /></div><p className="eyebrow">One choice before you start</p><h2 id="welcome-providers-title">Who does the listening and the thinking</h2><p>Recognition always happens on this computer. Analysis is your decision, and nothing is sent anywhere until you make it.</p></div>
+      <div className="welcome-hero"><div className="welcome-mark"><SlidersHorizontal size={28} /></div><p className="eyebrow">One choice before you start</p><h2 id="welcome-providers-title">Who does the listening and the thinking</h2><p>Recognition can stay on this computer or use the cloud. Analysis is your decision, and nothing is sent anywhere until you choose it.</p></div>
       <ProviderSetup settings={settings} onChange={(patch) => void changeSettings(patch)} onError={onError} />
       <div className="welcome-footer"><p><SlidersHorizontal size={15} /> All of this can be changed later in Settings.</p><div className="welcome-actions"><button className="secondary-button" onClick={() => setStep("intro")}>Back</button><button className="primary-button" onClick={onComplete}>Start using Threadbox</button></div></div>
     </section></div>;
   }
 
   return <div className="modal-backdrop welcome-backdrop"><section className="welcome-dialog" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
-    <div className="welcome-hero"><div className="welcome-mark"><Zap size={28} /></div><p className="eyebrow">Welcome to Threadbox</p><h2 id="welcome-title">Catch it now. Remember it later.</h2><p>Turn a passing message, thought, screenshot or voice note into a task before it disappears.</p></div>
+    <div className="welcome-hero"><div className="welcome-mark"><Zap size={28} /></div><p className="eyebrow">Welcome to Threadbox</p><h2 id="welcome-title">Keep work clear from organisation to action.</h2><p>Organise projects, meetings, communication and follow-up without losing the context that explains why the work exists.</p></div>
     <div className="welcome-flow">
-      <article><span><Zap size={19} /></span><div><strong>Capture in seconds</strong><p>Press <kbd>{shortcutLabel(shortcut)}</kbd> anywhere, then type, speak or attach context.</p></div></article>
-      <article><span><Paperclip size={19} /></span><div><strong>Keep the useful context</strong><p>Links, screenshots, recordings and files stay beside the task.</p></div></article>
-      <article><span><BellRing size={19} /></span><div><strong>Let Threadbox bring it back</strong><p>Set a reminder and get a visible nudge when it is time to act.</p></div></article>
+      <article><span><Zap size={19} /></span><div><strong>Start with an organisation</strong><p>Create its projects and people. The navigation and breadcrumbs always show the current context.</p></div></article>
+      <article><span><Paperclip size={19} /></span><div><strong>Run the project in one place</strong><p>Keep threads, meetings, documents, recordings and imported communication beside the work.</p></div></article>
+      <article><span><BellRing size={19} /></span><div><strong>Capture and follow through</strong><p>Press <kbd>{shortcutLabel(shortcut)}</kbd> anywhere, then assign the item and let reminders bring it back.</p></div></article>
     </div>
     <div className="welcome-footer"><p><SlidersHorizontal size={15} /> Shortcuts, audio, reminders and retention can all be adjusted in Settings.</p><button className="primary-button" onClick={() => setStep("providers")}>Next</button></div>
   </section></div>;

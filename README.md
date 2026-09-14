@@ -3,9 +3,12 @@
 [![Checks](https://github.com/vespy-pg/threadbox/actions/workflows/checks.yml/badge.svg)](https://github.com/vespy-pg/threadbox/actions/workflows/checks.yml)
 [![MIT License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-Threadbox is a local-first work and meeting assistant organised around organisations and projects. Capture a Slack message, email, WhatsApp message, screenshot, voice note, thought or meeting, then keep the original context beside the resulting work.
+Threadbox is a local-first work and meeting assistant organised around organisations and projects. Capture a Slack message, email, screenshot, voice note, thought or meeting, then keep the original context beside the resulting work.
 
-The first useful release targets Linux and Windows from one Tauri codebase. Linux is currently the only packaged and exercised build; the Windows platform adapters and release pipeline are planned in `docs/first-useful-release-plan.md`.
+The first useful release targets Linux and Windows from one Tauri codebase. Linux packages are
+exercised locally, and Windows adapters plus native CI packaging are implemented. Publishing the
+Windows installer still requires signing credentials and the clean-machine acceptance run in
+`docs/release-acceptance.md`.
 
 Linux release packages are built on Ubuntu 22.04 to remain compatible with Ubuntu 22.04 and newer distributions.
 
@@ -32,7 +35,7 @@ If double-clicking the package does not open an installer, open a terminal in th
 sudo apt install ./Threadbox_0.1.16_amd64.deb
 ```
 
-The Firefox extension is optional. The desktop app works on its own. To capture Slack, Gmail and WhatsApp messages from Firefox, download the signed `.xpi` file from the same release and open it with Firefox after Threadbox has been started once.
+The Firefox extension is optional. The desktop app works on its own. To capture Slack and Gmail messages from Firefox, download the signed `.xpi` file from the same release and open it with Firefox after Threadbox has been started once.
 
 ### Other Linux distributions
 
@@ -58,12 +61,12 @@ chmod +x Threadbox_0.1.16_amd64.AppImage
 - Meeting notes, decisions, addressed moments and action items anchored to recording timestamps
 - Project vocabulary sets with reviewed transcript candidates and correction-based variants
 - Configurable multilingual speech recognition with whisper.cpp through `whisper-rs`
-- Firefox capture buttons for Slack, Gmail, and WhatsApp Web
+- Firefox capture buttons for Slack and Gmail
 - Universal Firefox context-menu capture
 - Local SQLite metadata with file-based media storage and complete ZIP backup export
 - Single-instance desktop behavior that restores the existing window when launched again
 - Configurable login autostart that stays hidden in the system tray
-- No account, analytics, or cloud service
+- No Threadbox account or analytics; cloud speech, calendar, mail and language models are optional
 
 ## Repository layout
 
@@ -135,11 +138,11 @@ This installs a stable AppImage launcher under `~/.local`, updates the applicati
 
 ## Privacy
 
-Threadbox reads browser content only after the user selects a capture action. Tasks and message excerpts stay in local SQLite storage. Screenshots, recordings, and file attachments are stored as regular files in the application data directory and open with their system-associated applications. The extension requests access only to Slack, Gmail, and WhatsApp Web.
+Threadbox reads browser content only after the user selects a capture action. Tasks and message excerpts stay in local SQLite storage. Screenshots, recordings, and file attachments are stored as regular files in the application data directory and open with their system-associated applications. The extension requests access only to Slack and Gmail.
 
 ## Project status
 
-Threadbox is pre-release software. Website adapters depend on page structure and require maintenance when Slack, Gmail, or WhatsApp changes its interface.
+Threadbox is pre-release software. Website adapters depend on page structure and require maintenance when Slack or Gmail changes its interface.
 
 ## License
 

@@ -75,7 +75,7 @@ struct SpeechCloudStatus {
 }
 
 fn configured_google_client_id() -> AppResult<String> {
-    let configured = AppSettings::load()?.google_oauth_client_id;
+    let configured = effective_settings()?.google_oauth_client_id;
     if !configured.trim().is_empty() {
         return Ok(configured.trim().to_string());
     }
@@ -85,13 +85,30 @@ fn configured_google_client_id() -> AppResult<String> {
 }
 
 fn configured_microsoft_client_id() -> AppResult<String> {
-    let configured = AppSettings::load()?.microsoft_oauth_client_id;
+    let configured = effective_settings()?.microsoft_oauth_client_id;
     if !configured.trim().is_empty() {
         return Ok(configured.trim().to_string());
     }
     Ok(option_env!("THREADBOX_MICROSOFT_CLIENT_ID")
         .unwrap_or_default()
         .to_string())
+}
+
+fn effective_settings() -> AppResult<AppSettings> {
+    let mut settings = AppSettings::load()?;
+    if settings.google_oauth_client_id.trim().is_empty() {
+        settings.google_oauth_client_id = option_env!("THREADBOX_GOOGLE_OAUTH_CLIENT_ID")
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+    }
+    if settings.microsoft_oauth_client_id.trim().is_empty() {
+        settings.microsoft_oauth_client_id = option_env!("THREADBOX_MICROSOFT_OAUTH_CLIENT_ID")
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+    }
+    Ok(settings)
 }
 
 fn google_capability_scope(capability: &str) -> AppResult<&'static str> {
@@ -857,7 +874,7 @@ fn project_language(
 
 #[tauri::command]
 fn get_settings() -> AppResult<AppSettings> {
-    AppSettings::load()
+    effective_settings()
 }
 
 #[tauri::command]
