@@ -6,6 +6,7 @@ ARG CARGO_BUILD_JOBS=3
 ENV CARGO_HOME=/usr/local/cargo \
     RUSTUP_HOME=/usr/local/rustup \
     CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS} \
+    RUST_MIN_STACK=16777216 \
     PATH=/usr/local/cargo/bin:$PATH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

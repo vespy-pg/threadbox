@@ -1620,7 +1620,7 @@ pub fn run() {
     if let Err(error) = integration::register_firefox_native_host() {
         eprintln!("Could not register the Firefox native messaging host: {error}");
     }
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             integration::show_main_window(app);
         }))
@@ -1628,8 +1628,14 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_opener::init());
+    let builder =
+        if option_env!("THREADBOX_UPDATER_PUBLIC_KEY").is_some_and(|key| !key.trim().is_empty()) {
+            builder.plugin(tauri_plugin_updater::Builder::new().build())
+        } else {
+            builder
+        };
+    builder
         .manage(database)
         .manage(NativeAudioRecorder::default())
         .manage(MeetingAudioRecorder::default())
