@@ -13,3 +13,7 @@
    update:local` so the current user's launcher points to the latest resource-limited build. Skip it
    only when the user explicitly asks not to build or when the change does not affect the application
    artifact.
+8. After every Docker build attempt, including a failed build, prune BuildKit cache to the configured
+   limit. When a tagged Threadbox image is replaced, remove the superseded image only if it has no
+   remaining tags. Cleanup must target Threadbox-owned images and preserve current or explicitly
+   versioned images.

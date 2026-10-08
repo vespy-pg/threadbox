@@ -6,6 +6,12 @@ build_cpu_quota="${THREADBOX_BUILD_CPU_QUOTA:-100000}"
 build_jobs="${THREADBOX_BUILD_JOBS:-1}"
 cache_limit="${THREADBOX_BUILD_CACHE_LIMIT:-5GB}"
 
+cleanup_build_cache() {
+  docker builder prune --force --max-used-space "${cache_limit}"
+}
+
+trap cleanup_build_cache EXIT
+
 docker build \
   --resource "memory=${build_memory}" \
   --resource "cpu-quota=${build_cpu_quota}" \
@@ -15,5 +21,3 @@ docker build \
   --output type=local,dest=release \
   --progress=plain \
   .
-
-docker builder prune --force --max-used-space "${cache_limit}"
