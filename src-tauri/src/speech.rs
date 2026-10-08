@@ -22,6 +22,9 @@ pub const DEFAULT_MODEL: &str = "small";
 /// Detection per recording rather than a stated language.
 pub const LANGUAGE_AUTO: &str = "auto";
 
+const MAX_AUDIO_CONTEXT: usize = 1_500;
+const AUDIO_CONTEXT_ALIGNMENT: usize = 64;
+
 pub struct SpeechModel {
     pub id: &'static str,
     pub label: &'static str,
@@ -177,6 +180,7 @@ pub fn transcribe_wav_bytes(
             model.label
         )));
     }
+    let voice_note = channel.is_none();
     let samples = channel_samples(bytes, channel.unwrap_or(0))?
         .into_iter()
         .map(|sample| sample as f32 / i16::MAX as f32)
@@ -194,6 +198,11 @@ pub fn transcribe_wav_bytes(
     params.set_print_progress(false);
     params.set_print_realtime(false);
     params.set_print_timestamps(false);
+    if voice_note {
+        params.set_audio_ctx(voice_note_audio_context(samples.len()) as i32);
+        params.set_no_timestamps(true);
+        params.set_single_segment(true);
+    }
     if let Some(prompt) = initial_prompt.filter(|prompt| !prompt.trim().is_empty()) {
         params.set_initial_prompt(prompt);
     }
@@ -236,6 +245,19 @@ pub fn transcribe_wav_bytes(
         language: detected_language,
         segments,
     })
+}
+
+/// Whisper otherwise encodes its full 30-second window even for a short voice note. One audio
+/// context token covers 320 samples after the convolutional downsampling. Rounding up to the
+/// backend's natural alignment keeps enough padding without making a five-second capture pay for
+/// the other twenty-five seconds. Meeting channels keep the model's full context because they need
+/// timestamped segments.
+fn voice_note_audio_context(sample_count: usize) -> usize {
+    let required = sample_count.div_ceil(320).saturating_add(1);
+    required
+        .div_ceil(AUDIO_CONTEXT_ALIGNMENT)
+        .saturating_mul(AUDIO_CONTEXT_ALIGNMENT)
+        .clamp(AUDIO_CONTEXT_ALIGNMENT, MAX_AUDIO_CONTEXT)
 }
 
 /// Extracts one channel from Threadbox's recording format. Kept in one place so local and cloud
@@ -319,6 +341,14 @@ mod tests {
     fn an_unknown_model_is_rejected_rather_than_defaulted() {
         assert!(status("enormous").is_err());
         assert!(status(DEFAULT_MODEL).is_ok());
+    }
+
+    #[test]
+    fn voice_notes_use_only_the_audio_context_their_duration_needs() {
+        assert_eq!(voice_note_audio_context(16_000), 64);
+        assert_eq!(voice_note_audio_context(16_000 * 5), 256);
+        assert_eq!(voice_note_audio_context(16_000 * 30), MAX_AUDIO_CONTEXT);
+        assert_eq!(voice_note_audio_context(16_000 * 60), MAX_AUDIO_CONTEXT);
     }
 
     #[test]
