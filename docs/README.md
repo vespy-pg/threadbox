@@ -9,6 +9,10 @@ describes shipped behaviour unless it says so.
   and cloud transcription, calendar, mail and Windows support.
 - `information-architecture.md` - the organisation-first application shell and the stable homes for
   current and future work modules.
+- `product-naming.md` - naming criteria, rejected directions, current candidate status and the process
+  for researching the next batch.
+- `competitive-landscape.md` - direct meeting-to-action competitors, platform threats, local-first
+  alternatives and the product differentiation they imply.
 - `project-workflows.md` - project scenarios for notes, delegation, meetings, messages, calls and
   reviewed automation, plus the shared interaction model behind them.
 - `communication-integrations.md` - feasibility, provider constraints and the recommended delivery
